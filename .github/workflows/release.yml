@@ -41,6 +41,15 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships 11.1.x, which silently cannot do
+      # the OIDC exchange at all — it just publishes unauthenticated and the registry answers
+      # 404 on the PUT (npm returns 404 rather than 401 so it never reveals whether a package
+      # exists). Upgrading is what makes OIDC actually available.
+      - name: Upgrade npm (trusted publishing needs >= 11.5.1)
+        run: |
+          npm install -g npm@latest
+          npm --version
+
       # ---- build everything before publishing anything ----------------------------------------
       # Both halves are built and packed first, so a green build cannot publish one registry and
       # then fail on the other, leaving the pair half-released.
@@ -56,7 +65,7 @@ jobs:
         run: |
           npm ci
           npm version ${VERSION} --no-git-tag-version --allow-same-version
-          npm pack
+          npm run build
 
       # ---- publish ----------------------------------------------------------------------------
 
@@ -75,6 +84,9 @@ jobs:
       # deliberately no NODE_AUTH_TOKEN here. It must stay absent rather than empty: setup-node
       # v7 removed the dummy NODE_AUTH_TOKEN export, so an empty value would leave the generated
       # .npmrc with an unresolved _authToken instead of falling through to OIDC.
+      # Publishes from the package directory, not a pre-packed .tgz: npm's trusted-publishing
+      # docs only ever demonstrate the directory form, and this is not the place to be off the
+      # documented path. prepack rebuilds and copies LICENSE/NOTICE, so the contents are the same.
       - name: Publish (npm)
         working-directory: clients/signed-channel-client
-        run: npm publish signed-channel-client-${VERSION}.tgz
+        run: npm publish
