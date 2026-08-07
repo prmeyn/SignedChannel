@@ -11,13 +11,30 @@ a server-rendered page, or a test harness.
 npm install signed-channel-client
 ```
 
+## What's in it
+
+- `AuthChannelCore` — the channel: handshake, request signing, push decryption, session expiry.
+- `SessionApi`, `SessionStore`, `CryptoCore` — the pieces it runs on.
+- `SignalRChannelConnection` — a `ChannelConnection` over SignalR, with automatic reconnect.
+- `ChannelConnection`, `PushMessage`, and the base64 helpers.
+
+**SignalR is injected, not imported**, so this package depends on nothing. A bundled host passes
+its `@microsoft/signalr` import; a page that loads `signalr.min.js` from a script tag passes the
+global. Both get identical behaviour, and the script-tag host doesn't bundle a second copy.
+
+```ts
+import { AuthChannelCore, SessionApi, SessionStore, CryptoCore, SignalRChannelConnection } from 'signed-channel-client';
+
+const crypto = new CryptoCore();
+const store = new SessionStore();
+const connection = new SignalRChannelConnection({ signalR, onStatusChange: (s) => render(s) });
+new AuthChannelCore(connection, new SessionApi(crypto, store), store, crypto).start('en');
+```
+
 ## Status
 
-**Early — `0.x`, API not yet stable.** This version publishes the shared contracts only: the
-`ChannelConnection` abstraction, the `PushMessage` envelope, and the base64 helpers whose exact
-byte handling the signing protocol depends on. The channel itself — handshake, request signing,
-push decryption, session expiry — lands next, extracted from a production implementation rather
-than written fresh.
+**Early — `0.x`, API not yet stable.** Extracted from a production implementation rather than
+written fresh, but the surface may still move.
 
 The server half is the `SignedChannel` NuGet package.
 
