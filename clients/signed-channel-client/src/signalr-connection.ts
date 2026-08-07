@@ -106,8 +106,12 @@ export class SignalRChannelConnection implements ChannelConnection {
   }
 
   private markConnected(): void {
-    this.setStatus('Connected');
+    // The id is adopted BEFORE 'Connected' is announced. Anything reacting to that status has to
+    // be able to read the connection id — the channel's handshake registers the session with it
+    // and gives up if it is missing — so announcing the status first publishes a state that is
+    // briefly a lie.
     this.id = this.connection?.connectionId ?? null;
+    this.setStatus('Connected');
     for (const callback of this.connectedCallbacks) {
       callback();
     }

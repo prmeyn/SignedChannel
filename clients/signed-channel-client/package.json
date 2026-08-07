@@ -1,6 +1,6 @@
 {
   "name": "signed-channel-client",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Browser half of the SignedChannel: a session-bound signed request channel with SignalR push. Framework-agnostic.",
   "license": "Apache-2.0",
   "author": "prmeyn",
