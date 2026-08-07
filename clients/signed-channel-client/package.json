@@ -1,0 +1,55 @@
+{
+  "name": "signed-channel-client",
+  "version": "0.1.0",
+  "description": "Browser half of the SignedChannel: a session-bound signed request channel with SignalR push. Framework-agnostic.",
+  "license": "Apache-2.0",
+  "author": "prmeyn",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prmeyn/SignedChannel.git",
+    "directory": "clients/signed-channel-client"
+  },
+  "homepage": "https://github.com/prmeyn/SignedChannel#readme",
+  "bugs": {
+    "url": "https://github.com/prmeyn/SignedChannel/issues"
+  },
+  "keywords": [
+    "signalr",
+    "signed-channel",
+    "push",
+    "session"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "legal": "node -e \"const fs=require('node:fs');for(const f of ['LICENSE','NOTICE'])fs.copyFileSync('../../'+f,f)\"",
+    "prepack": "npm run build && npm run legal"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}

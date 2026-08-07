@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>SignedChannel</PackageId>
+    <Title>SignedChannel</Title>
+    <Description>Contracts for the SignedChannel browser action layer: implement ISecureWebBrowserAction&lt;TRequest, TResponse&gt; instead of building HTTP endpoints. The transport, dispatcher and presence hub follow in a later version.</Description>
+    <RootNamespace>SignedChannel</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- HttpRequest on the action surface; no package dependencies of its own. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

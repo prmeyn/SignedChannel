@@ -1,0 +1,23 @@
+# .NET
+bin/
+obj/
+*.user
+*.nupkg
+*.snupkg
+
+# Node
+node_modules/
+dist/
+*.tgz
+
+# Copied from the repo root at pack time (see the client's "legal" script) so the tarball
+# carries them, without a second copy of the licence text living in git.
+clients/*/LICENSE
+clients/*/NOTICE
+
+# IDE / OS
+.vs/
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
