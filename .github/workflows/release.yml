@@ -21,10 +21,15 @@ jobs:
         # Pinned to a commit SHA rather than a tag: a tag can be repointed, and this job holds an
         # id-token that can publish. Comments record the human-readable version.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history — the ancestry check below needs it
 
+      # Refuses to publish anything that isn't on main. This needs real history on BOTH sides:
+      # with a shallow fetch git holds main's tip and nothing behind it, so it cannot tell that
+      # main contains the tagged commit, and the check fails for any tag that isn't the tip.
       - name: Verify commit exists in origin/main
         run: |
-          git fetch --no-tags --prune --depth=1 origin +refs/heads/*:refs/remotes/origin/*
+          git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
           git branch --remote --contains | grep origin/main
 
       - name: Set VERSION variable from tag
