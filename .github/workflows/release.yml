@@ -71,12 +71,10 @@ jobs:
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
 
+      # Authenticates via OIDC (trusted publishing) using the id-token granted above — there is
+      # deliberately no NODE_AUTH_TOKEN here. It must stay absent rather than empty: setup-node
+      # v7 removed the dummy NODE_AUTH_TOKEN export, so an empty value would leave the generated
+      # .npmrc with an unresolved _authToken instead of falling through to OIDC.
       - name: Publish (npm)
         working-directory: clients/signed-channel-client
         run: npm publish signed-channel-client-${VERSION}.tgz
-        # Bootstrap auth only. When moving to trusted publishing (OIDC), DELETE this env block
-        # rather than just clearing the secret: setup-node v7 removed the dummy NODE_AUTH_TOKEN
-        # export, so an empty value here leaves the generated .npmrc with an unresolved
-        # _authToken instead of falling through to OIDC.
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
