@@ -21,3 +21,6 @@ clients/*/NOTICE
 .vscode/
 Thumbs.db
 .DS_Store
+
+# Local pack output (CI packs to the same folder).
+artifacts/

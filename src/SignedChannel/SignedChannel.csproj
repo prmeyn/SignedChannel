@@ -3,13 +3,22 @@
   <PropertyGroup>
     <PackageId>SignedChannel</PackageId>
     <Title>SignedChannel</Title>
-    <Description>Contracts for the SignedChannel browser action layer: implement ISecureWebBrowserAction&lt;TRequest, TResponse&gt; instead of building HTTP endpoints. The transport, dispatcher and presence hub follow in a later version.</Description>
+    <Description>A signed browser-to-server channel for ASP.NET Core: per-session key pairs, signature-verified requests, and a SignalR presence hub for server push. Implement ISecureWebBrowserAction&lt;TRequest, TResponse&gt; instead of building HTTP endpoints.</Description>
     <RootNamespace>SignedChannel</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- HttpRequest on the action surface; no package dependencies of its own. -->
+    <!-- Endpoints, HttpRequest and the SignalR hub. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ECDSA sign/verify and the encrypt-the-session-id-back handshake. -->
+    <PackageReference Include="PublicKeyUtils" Version="10.0.0" />
+    <!-- Base64 and SHA-512 helpers; the session id derivation must hash exactly as the
+         client does, so this is shared rather than reimplemented. -->
+    <PackageReference Include="Meyn.Utilities" Version="10.2.0" />
+    <PackageReference Include="FluentValidation" Version="12.1.1" />
   </ItemGroup>
 
 </Project>

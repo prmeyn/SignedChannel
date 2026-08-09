@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>SignedChannel.MongoDb</PackageId>
+    <Title>SignedChannel.MongoDb</Title>
+    <Description>MongoDB session storage for SignedChannel. Provides IChannelSessionStore on top of MongoDbService, and is open for inheritance so an application can keep its own per-session state in the same document.</Description>
+    <RootNamespace>SignedChannel.MongoDb</RootNamespace>
+    <PackageTags>signalr;signed-channel;actions;aspnetcore;mongodb</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../SignedChannel/SignedChannel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The connection, settings and lifetime are already solved here rather than being
+         reimplemented against the raw driver. -->
+    <PackageReference Include="MongoDbService" Version="10.2.1" />
+  </ItemGroup>
+
+</Project>
