@@ -1,0 +1,50 @@
+# Build and test every pull request (including Dependabot's) and every push to main.
+# Publishing stays in release.yml, which is tag-driven and holds the id-token; this job holds
+# nothing and needs nothing.
+
+name: Build and Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Pushing again to a pull request makes the in-flight run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The job id is the status-check name GitHub reports ("build"). If branch protection ever
+  # requires it, renaming this key makes the required check silently never arrive.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout
+      # Pinned to a commit SHA rather than a tag: a tag can be repointed. The comment records the
+      # human-readable version, and Dependabot keeps both up to date.
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - name: Setup .NET
+      # Same SDK pin as release.yml, so a green pull request means the release toolchain builds it.
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      with:
+        dotnet-version: "10.0.x"
+    - name: Build
+      # /warnaserror keeps the build at its current 0 warnings: a new warning (from a dependency
+      # bump, say) turns the pull request red instead of landing unread in a log.
+      run: dotnet build SignedChannel.slnx --configuration Release /warnaserror
+    # There is no .NET test project yet; the build (TreatWarningsAsErrors via Directory.Build.props)
+    # is the check. The npm client is built too, so a TypeScript bump that breaks it shows here.
+    - name: Setup Node
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      with:
+        node-version: "22"
+    - name: Build (npm)
+      working-directory: clients/signed-channel-client
+      run: |
+        npm ci
+        npm run build
