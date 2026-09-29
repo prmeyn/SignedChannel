@@ -15,7 +15,7 @@
   <ItemGroup>
     <!-- The connection, settings and lifetime are already solved here rather than being
          reimplemented against the raw driver. -->
-    <PackageReference Include="MongoDbService" Version="10.2.1" />
+    <PackageReference Include="MongoDbService" Version="10.3.0" />
   </ItemGroup>
 
 </Project>
