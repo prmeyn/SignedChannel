@@ -14,10 +14,10 @@
 
   <ItemGroup>
     <!-- ECDSA sign/verify and the encrypt-the-session-id-back handshake. -->
-    <PackageReference Include="PublicKeyUtils" Version="10.1.0" />
+    <PackageReference Include="PublicKeyUtils" Version="10.1.1" />
     <!-- Base64 and SHA-512 helpers; the session id derivation must hash exactly as the
          client does, so this is shared rather than reimplemented. -->
-    <PackageReference Include="Meyn.Utilities" Version="10.2.0" />
+    <PackageReference Include="Meyn.Utilities" Version="10.2.1" />
     <PackageReference Include="FluentValidation" Version="12.1.1" />
   </ItemGroup>
 
