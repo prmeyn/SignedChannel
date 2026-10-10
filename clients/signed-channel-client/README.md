@@ -31,6 +31,26 @@ const connection = new SignalRChannelConnection({ signalR, onStatusChange: (s) =
 new AuthChannelCore(connection, new SessionApi(crypto, store), store, crypto).start('en');
 ```
 
+## Key storage
+
+Each tab's session has two private keys: ECDSA P-384 for signing requests, and RSA-OAEP for decrypting pushes.
+Both are generated **non-extractable**. Scripts on the page, an XSS payload included, can use them in place
+but can't read the key material out.
+
+- The `CryptoKey` objects are stored in IndexedDB (database `signed-channel`, store `sessionKeys`) under a
+  random per-tab id. `sessionStorage` holds that id and the session id, so each tab keeps its own session.
+- Signing out (`resetKeyPairs`) deletes the tab's record. A tab closed while signed in leaves its record
+  behind; a sweep on the next page load removes records older than `SessionStore.staleKeyRecordMaxAgeSeconds`
+  (default 24 hours, which should stay above the server's absolute session lifetime).
+- Where IndexedDB is unusable (some private-browsing modes), the keys live only in memory. A reload then
+  finds a session id with no keys and registers a fresh session, so the user signs in again.
+- Earlier versions stored the keys as extractable JWKs in `sessionStorage['sessionSettings']`. That entry is
+  deleted on sight and never used; a tab that had one simply registers a new session.
+
+Non-extractable keys stop key theft, not session riding: a script on the page can still sign requests,
+and the browser attaches the server's HttpOnly session cookie to them. A strict Content-Security-Policy is
+the defence against that.
+
 ## Status
 
 **Early — `0.x`, API not yet stable.** Extracted from a production implementation rather than

@@ -38,13 +38,14 @@ jobs:
       # bump, say) turns the pull request red instead of landing unread in a log.
       run: dotnet build SignedChannel.slnx --configuration Release /warnaserror
     # There is no .NET test project yet; the build (TreatWarningsAsErrors via Directory.Build.props)
-    # is the check. The npm client is built too, so a TypeScript bump that breaks it shows here.
+    # is the check. The npm client is built and its tests run (npm test builds first), so a
+    # TypeScript bump that breaks it shows here.
     - name: Setup Node
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
         node-version: "22"
-    - name: Build (npm)
+    - name: Build and test (npm)
       working-directory: clients/signed-channel-client
       run: |
         npm ci
-        npm run build
+        npm test

@@ -7,6 +7,7 @@ export { AuthChannelCore } from './auth-channel-core.js';
 export type { InitiateAuthFlowResult, MobileNumberInput, VerifyOtpResult } from './auth-channel-core.js';
 export { SessionApi } from './session-api.js';
 export { SessionStore } from './session-store.js';
+export type { SessionKeys } from './session-store.js';
 export { CryptoCore } from './crypto-core.js';
 
 // SignalR transport

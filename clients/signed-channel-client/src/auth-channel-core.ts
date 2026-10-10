@@ -119,6 +119,13 @@ export class AuthChannelCore {
     const webBrowserId = this.ensureWebBrowserId();
 
     let sessionId = this.settings.getSessionId();
+    // A session id with no keys behind it can never sign: the keys lived only in the
+    // previous page's memory (IndexedDB unusable), or this tab predates key storage in
+    // IndexedDB. Start over with a fresh session.
+    if (sessionId && !(await this.settings.getSigningPrivateKey())) {
+      sessionId = null;
+      this.settings.setIsLoggedIn(false);
+    }
     if (!sessionId) {
       sessionId = await this.api.registerSession(webBrowserId, connectionId, language);
       if (!sessionId) {
@@ -235,7 +242,7 @@ export class AuthChannelCore {
     } catch {
       // Best-effort: the session may already be logged out server-side.
     }
-    this.settings.resetKeyPairs(false, true);
+    await this.settings.resetKeyPairs(false, true);
     window.location.assign('/login/');
   }
 
@@ -320,7 +327,7 @@ export class AuthChannelCore {
     if (!encryptedPayloadAsBase64) {
       return null;
     }
-    const key = this.settings.getDecryptingPrivateKey();
+    const key = await this.settings.getDecryptingPrivateKey();
     if (!key) {
       return null;
     }
