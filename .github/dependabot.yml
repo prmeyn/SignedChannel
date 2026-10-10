@@ -19,7 +19,10 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-    # The catch-all "*" group must stay last, or it claims everything.
+    # Updates are split into separate pull requests per group. Dependabot puts a dependency in every
+    # group whose patterns match it (not just the first), so the catch-all "third-party" group lists
+    # the other groups' patterns under exclude-patterns. Without them, any third-party update in a
+    # run produced one superset pull request that replaced the narrower ones.
     groups:
       own-packages:
         # Sibling packages from github.com/prmeyn, listed by name because they share no prefix.
@@ -34,6 +37,15 @@ updates:
       third-party:
         patterns:
           - "*"
+        # "*" alone would also match every package above: Dependabot puts a dependency in
+        # every group it matches, not just the first. These exclusions make this group
+        # really mean "everything else". Keep them in step with the groups above.
+        exclude-patterns:
+          - "Meyn.Utilities"
+          - "MongoDbService"
+          - "PublicKeyUtils"
+          - "Microsoft.*"
+          - "System.*"
 
   - package-ecosystem: "npm"
     # The browser client published alongside the NuGet packages.
