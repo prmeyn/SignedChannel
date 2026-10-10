@@ -22,12 +22,12 @@ export class SessionApi {
     const decryptionKeyPair = await this.crypto.generateEncryptionKeyPair();
 
     const verifyingPublicKeyData = await this.crypto.exportPublicKey(signingKeyPair);
-    const signingPrivateKey = await this.crypto.exportPrivateKey(signingKeyPair);
-    const decryptionPrivateKey = await this.crypto.exportPrivateKey(decryptionKeyPair);
     const encryptionPublicKeyData = await this.crypto.exportPublicKey(decryptionKeyPair);
 
-    this.settings.saveSigningPrivateKey(signingPrivateKey);
-    this.settings.saveDecryptingPrivateKey(decryptionPrivateKey);
+    await this.settings.saveKeys({
+      signingPrivateKey: signingKeyPair.privateKey,
+      decryptingPrivateKey: decryptionKeyPair.privateKey,
+    });
 
     const VerifyingPublicKeyBase64 = this.crypto.base64Stringify(verifyingPublicKeyData);
     const EncryptionPublicKeyBase64 = this.crypto.base64Stringify(encryptionPublicKeyData);
@@ -38,9 +38,8 @@ export class SessionApi {
       TimeStampWithOffSetUTC,
     });
 
-    const importedSigningPrivateKey = await this.crypto.importSigningPrivateKey(signingPrivateKey);
     const signature = await this.crypto.signMessage(
-      SessionApi.HASH_ALGORITHM, EncryptionPublicKeyRequestWithTimestampAsBase64, importedSigningPrivateKey);
+      SessionApi.HASH_ALGORITHM, EncryptionPublicKeyRequestWithTimestampAsBase64, signingKeyPair.privateKey);
 
     const registrationRequest = {
       WebBrowserId: webBrowserId,
@@ -60,7 +59,7 @@ export class SessionApi {
     });
 
     if (!response.ok) {
-      this.settings.resetKeyPairs(true);
+      void this.settings.resetKeyPairs(true);
       return null;
     }
 
@@ -68,11 +67,7 @@ export class SessionApi {
     if (!data?.encryptedSessionIdAsBase64) {
       return null;
     }
-    const decryptingPrivateKey = this.settings.getDecryptingPrivateKey();
-    if (!decryptingPrivateKey) {
-      return null;
-    }
-    return this.crypto.decryptEncryptedStringAsBase64(data.encryptedSessionIdAsBase64, decryptingPrivateKey);
+    return this.crypto.decryptEncryptedStringAsBase64(data.encryptedSessionIdAsBase64, decryptionKeyPair.privateKey);
   }
 
   async sendSignedRequest<T = unknown>(actionName: string, payload: unknown = {}): Promise<T> {
@@ -85,12 +80,11 @@ export class SessionApi {
       JSON.stringify({ SessionId, SignalRConnectionId, ActionName: actionName, TimeStampWithOffSetUTC, PayloadAsBase64 })
     );
 
-    const signingPrivateKey = this.settings.getSigningPrivateKey();
+    const signingPrivateKey = await this.settings.getSigningPrivateKey();
     if (!signingPrivateKey) {
       return {} as T;
     }
-    const importedSigningPrivateKey = await this.crypto.importSigningPrivateKey(signingPrivateKey);
-    const signature = await this.crypto.signMessage(SessionApi.HASH_ALGORITHM, MessagePayloadRequestAsBase64, importedSigningPrivateKey);
+    const signature = await this.crypto.signMessage(SessionApi.HASH_ALGORITHM, MessagePayloadRequestAsBase64, signingPrivateKey);
 
     const signedPayloadRequest = {
       MessagePayloadRequestAsBase64,
@@ -112,7 +106,7 @@ export class SessionApi {
       } catch {
         // 401 with no JSON body (e.g. Results.Unauthorized()).
       }
-      this.settings.resetKeyPairs();
+      void this.settings.resetKeyPairs();
       this.onUnauthorized?.(code);
       return {} as T;
     }

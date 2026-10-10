@@ -42,6 +42,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.json",
+    "test": "npm run build && node --test",
     "legal": "node -e \"const fs=require('node:fs');for(const f of ['LICENSE','NOTICE'])fs.copyFileSync('../../'+f,f)\"",
     "prepack": "npm run build && npm run legal"
   },
