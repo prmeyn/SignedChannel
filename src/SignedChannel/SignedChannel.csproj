@@ -18,7 +18,7 @@
     <!-- Base64 and SHA-512 helpers; the session id derivation must hash exactly as the
          client does, so this is shared rather than reimplemented. -->
     <PackageReference Include="Meyn.Utilities" Version="10.2.1" />
-    <PackageReference Include="FluentValidation" Version="12.1.1" />
+    <PackageReference Include="FluentValidation" Version="12.2.0" />
   </ItemGroup>
 
 </Project>
