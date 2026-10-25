@@ -28,6 +28,10 @@ public sealed record ResolvedAction(
 /// The convention is the point — adding an action is adding a class, with no route to register
 /// and no DI entry to remember. Results are cached, so the reflection cost is paid once per name.
 /// </para>
+/// <para>
+/// Names under <see cref="ChannelNames.ReservedPrefix"/> are the exception: they resolve to the
+/// package's built-in actions, never to the host's.
+/// </para>
 /// </summary>
 public sealed class ActionResolver
 {
@@ -55,20 +59,64 @@ public sealed class ActionResolver
 
     private ResolvedAction? ResolveUncached(string actionName)
     {
+        // The channel's own names never reach the convention: they resolve to the package's
+        // actions or to nothing, so a host can neither shadow one nor be shadowed by it.
+        if (actionName.StartsWith(ChannelNames.ReservedPrefix, StringComparison.Ordinal))
+        {
+            return BuiltInActions.TryGetValue(actionName, out var builtIn) ? Describe(builtIn, isDevOnly: false) : null;
+        }
+
         var expectedFullName = $"{_options.RootNamespace}.{InsertActionsNamespace(actionName)}";
 
         var type = Array.Find(_candidateTypes.Value, candidate =>
-            candidate.FullName == expectedFullName &&
-            Array.Exists(candidate.GetInterfaces(), i =>
-                i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ISecureWebBrowserAction<,>)));
+            candidate.FullName == expectedFullName && ActionInterfaceOf(candidate) is not null);
 
-        if (type is null)
+        return type is null ? null : Describe(type, IsDevAction(type));
+    }
+
+    /// <summary>
+    /// Throws if the host's action assembly holds an action that would resolve under the reserved
+    /// <see cref="ChannelNames.ReservedPrefix"/>. Called at startup, so the collision is a boot
+    /// failure that names the class rather than an action that silently never runs.
+    /// </summary>
+    public static void ThrowIfHostDefinesReservedActions(SignedChannelOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate();
+
+        var reservedNamespace = $"{options.RootNamespace}.{ChannelNames.ReservedPrefix}";
+        var offender = Array.Find(options.ActionAssembly!.GetTypes(), type =>
+            type.FullName?.StartsWith(reservedNamespace, StringComparison.Ordinal) == true &&
+            ActionInterfaceOf(type) is not null);
+
+        if (offender is not null)
+        {
+            throw new InvalidOperationException(
+                $"{offender.FullName} would answer a wire name under '{ChannelNames.ReservedPrefix}', which is reserved for " +
+                "SignedChannel's own actions. Move it to another namespace.");
+        }
+    }
+
+    private static readonly Dictionary<string, Type> BuiltInActions = new(StringComparer.Ordinal)
+    {
+        [ChannelNames.Register] = typeof(BuiltIn.RegisterAction),
+        [ChannelNames.VerifyConnection] = typeof(BuiltIn.VerifyConnectionAction),
+        [ChannelNames.DownloadInstruction] = typeof(BuiltIn.DownloadInstructionAction),
+        [ChannelNames.KeepAlive] = typeof(BuiltIn.KeepAliveAction),
+        [ChannelNames.SignOut] = typeof(BuiltIn.SignOutAction)
+    };
+
+    private static Type? ActionInterfaceOf(Type type) =>
+        Array.Find(type.GetInterfaces(), i =>
+            i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ISecureWebBrowserAction<,>));
+
+    private static ResolvedAction? Describe(Type type, bool isDevOnly)
+    {
+        var interfaceType = ActionInterfaceOf(type);
+        if (interfaceType is null)
         {
             return null;
         }
-
-        var interfaceType = Array.Find(type.GetInterfaces(), i =>
-            i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ISecureWebBrowserAction<,>))!;
 
         var validateMethod = interfaceType.GetMethod(nameof(ISecureWebBrowserAction<,>.ValidateFromWebBrowser));
         var authorizeMethod = interfaceType.GetMethod(nameof(ISecureWebBrowserAction<,>.HasAccess));
@@ -85,7 +133,7 @@ public sealed class ActionResolver
             validateMethod,
             authorizeMethod,
             processMethod,
-            IsDevOnly: IsDevAction(type));
+            isDevOnly);
     }
 
     /// <summary>

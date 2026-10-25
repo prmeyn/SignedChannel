@@ -3,4 +3,7 @@
     <Project Path="src/SignedChannel/SignedChannel.csproj" />
     <Project Path="src/SignedChannel.MongoDb/SignedChannel.MongoDb.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SignedChannel.Tests/SignedChannel.Tests.csproj" />
+  </Folder>
 </Solution>

@@ -48,6 +48,34 @@ public interface IChannelSessionObserver
 }
 
 /// <summary>
+/// What the application is told when a browser signs itself out.
+/// </summary>
+/// <param name="HttpRequest">The sign-out request, so the host can clear its own cookies on the response.</param>
+/// <param name="SessionId">The session that signed out.</param>
+/// <param name="UserId">The user it belonged to, or null if it was not signed in.</param>
+/// <param name="LatestDeviceId">From <see cref="ISessionDeviceResolver"/>, when one is registered.</param>
+public sealed record BrowserSignedOutContext(
+    HttpRequest HttpRequest,
+    string SessionId,
+    string? UserId,
+    string? LatestDeviceId);
+
+/// <summary>
+/// Notified when a browser signs out through <see cref="ChannelNames.SignOut"/>.
+/// <para>
+/// Optional. The channel has already tombstoned the session, told its other tabs and dropped its
+/// own cookie; this is for whatever else the application ties to a sign-in — its own auth cookies,
+/// a companion device's session list. Awaited, so cookie changes land on the response; a throw
+/// fails the request after the sign-out itself has happened.
+/// </para>
+/// </summary>
+public interface IChannelSignOutObserver
+{
+    /// <summary>Called after the session has been signed out.</summary>
+    Task OnBrowserSignedOutAsync(BrowserSignedOutContext context);
+}
+
+/// <summary>
 /// One completed action, described for the audit trail.
 /// </summary>
 /// <param name="SessionId">Session that made the request.</param>

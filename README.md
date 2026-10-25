@@ -29,11 +29,29 @@ builder.Services.AddSignedChannel(options =>
     options.RootNamespace  = "MyApp";
     options.DevActionPrefix = "MyApp.Dev.";   // keep the trailing dot
 });
-builder.Services.AddSignedChannelMongoDb();   // or your own IChannelSessionStore
+builder.Services.AddSignalR();
+builder.Services.AddSignedChannelMongoDb();   // sessions, instructions and tokens on MongoDB
 
 app.MapSignedChannelHub();   // must come before any SPA fallback route
 app.MapSignedChannel();
 ```
+
+Without `AddSignedChannelMongoDb` you still need an `IChannelSessionStore`; the instruction and
+token stores default to in-memory, which is fine for one instance and wrong for more than one.
+
+```ts
+import { ChannelCore, CryptoCore, SessionApi, SessionStore, SignalRChannelConnection } from 'signed-channel-client';
+
+const crypto = new CryptoCore();
+const store = new SessionStore();
+const connection = new SignalRChannelConnection({ signalR });
+const channel = new ChannelCore(connection, new SessionApi(crypto, store), store, crypto);
+channel.start('en');
+```
+
+The channel's own handshake — registering the connection, the encrypted connection challenge,
+keep-alive, sign-out — is built in. Wire names under `Channel.` belong to the package, and an
+application action that would answer one fails startup.
 
 `ActionAssembly` and `RootNamespace` have no sensible default and are validated at startup.
 Action lookup scans the assembly you name — if it scanned its own, it would find nothing and
@@ -52,14 +70,45 @@ public sealed class GetNameAction : ISecureWebBrowserAction<GetNameRequest, GetN
 }
 ```
 
+On the browser, `channel.send('Profile.GetName', { ... })` signs and posts it.
+
+### Custom events: instructions
+
+The server tells a session's tabs something by pushing an **instruction** — a name your
+application defines and a payload of any size. Inject `ChannelPushService` anywhere you have a
+session id: in an action, a background job, a webhook handler.
+
+```csharp
+await push.PushInstructionAsync(sessionId, "Orders.Shipped", JsonSerializer.Serialize(order),
+    TimeSpan.FromMinutes(1),
+    exceptConnectionId: signalRConnectionId);   // optional: skip the tab that caused it
+```
+
+```ts
+const unsubscribe = channel.on('Orders.Shipped', (payload) => showToast(JSON.parse(payload!)));
+```
+
+Under the hood the instruction is stored, only a short pointer is pushed — encrypted to the
+session's key, because RSA payloads are size-limited — and the browser downloads the instruction
+over the signed channel. Each pointer is single-use and only the session it was addressed to can
+collect it.
+
+Finding *which* sessions to push to (all of a user's tabs, say) is the application's business:
+keep the ids you need, for instance from `IChannelSessionObserver`.
+
 ### Signing a session in
 
 The channel never decides who someone is. Authenticate however you like — passkeys, OIDC, a
 magic link — then tell it:
 
 ```csharp
-await sessionStore.SetUserIdAsync(sessionId, yourOwnUserId);
+await channelSessions.SignInAsync(sessionId, yourOwnUserId);   // ChannelSessionService
 ```
+
+That clears any earlier sign-out and pushes `Channel.SignedIn` to every tab of the session, where
+`channel.onSignedIn` fires. `SignOutAsync(sessionId)` is the reverse, for sign-outs that start on
+the server; a tab signs itself out with `channel.signOut()`, and every tab ends in
+`channel.onSignedOut`.
 
 The user id is opaque: echoed to actions, used to decide whether a request counts as signed in,
 never interpreted. That is what lets a confidential OIDC client hand over the `sub` from its own
@@ -74,13 +123,19 @@ Register any of these and the channel calls them; leave them out and it does not
 | `IChannelSessionObserver` | a session registering — per-browser bookkeeping |
 | `IChannelActivityRecorder` | a completed action — your audit trail |
 | `ISessionDeviceResolver` | the device behind a signed-in session |
-| `IPresenceObserver` | connections opening and closing |
-| `IConnectionChangeNotifier` | a signed-in session losing a tab |
+| `IPresenceObserver` | connections opening, binding to a session, and closing |
+| `IConnectionChangeNotifier` | a signed-in session gaining or losing a tab |
+| `IChannelSignOutObserver` | a browser signing out — your own cookies, a companion device |
 
 ## Status
 
-**Early — `0.x`, API not yet stable.** The code is extracted from a production implementation
-rather than written fresh, so the protocol is settled even while the C# surface still moves.
+**API not yet stable.** The code is extracted from a production implementation rather than
+written fresh, so the protocol is settled even while the surface still moves.
+
+**Versioning:** the major version follows the .NET version it targets (10.x is .NET 10), so it is
+*not* a breaking-change signal — a minor release can break the API. Both halves always release
+together under one version; pin the pair exactly (`10.2.0`, not `^10.1.0`) and read the release
+notes before moving.
 
 ## Licence
 

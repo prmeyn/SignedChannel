@@ -5,8 +5,8 @@ namespace SignedChannel;
 /// <para>
 /// This exists so the channel can stay out of the notification business. The motivating case is a
 /// companion app showing "this account is open in 3 tabs" — that count is only live if something
-/// tells the app when a tab closes, but *how* it is told (push service, websocket, email) is the
-/// application's concern, not the protocol's.
+/// tells the app when a tab opens or closes, but *how* it is told (push service, websocket, email)
+/// is the application's concern, not the protocol's.
 /// </para>
 /// <para>
 /// Register an implementation to receive the callbacks; leave it unregistered and the channel
@@ -17,14 +17,15 @@ namespace SignedChannel;
 public interface IConnectionChangeNotifier
 {
     /// <summary>
-    /// A signed-in session lost a connection, typically a closed tab or a navigation away.
+    /// A signed-in session gained a verified connection (a new tab), or lost one (a closed tab or a
+    /// navigation away).
     /// <para>
-    /// Called after the connection has already been removed from the session, so a slow or failing
-    /// implementation cannot hold up the disconnect. Best-effort by construction: nothing observes
-    /// the returned task, so swallow errors rather than throwing.
+    /// Called after the change has been recorded, so a slow or failing implementation cannot hold
+    /// it up. Best-effort by construction: nothing observes the returned task, so swallow errors
+    /// rather than throwing.
     /// </para>
     /// </summary>
     /// <param name="userId">The application's own opaque user id from the session.</param>
-    /// <param name="sessionId">The session that lost the connection.</param>
+    /// <param name="sessionId">The session whose connections changed.</param>
     Task OnSessionConnectionChangedAsync(string userId, string sessionId);
 }

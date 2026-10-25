@@ -34,6 +34,7 @@ public static class SignedChannelEndpoints
     {
         var options = app.ServiceProvider.GetRequiredService<IOptions<SignedChannelOptions>>().Value;
         options.Validate();
+        ActionResolver.ThrowIfHostDefinesReservedActions(options);
 
         MapRegister(app, options);
         MapDispatcher(app, options);

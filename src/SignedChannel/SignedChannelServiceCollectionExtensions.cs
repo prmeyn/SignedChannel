@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace SignedChannel;
 
@@ -9,8 +10,9 @@ namespace SignedChannel;
 public static class SignedChannelServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the channel: options, freshness, the two validators, the expiry policy and the
-    /// action resolver.
+    /// Registers the channel: options, freshness, the two validators, the expiry policy, the
+    /// action resolver, push and sign-in/out, and in-memory instruction and token stores unless
+    /// others are registered.
     /// <para>
     /// A session store is <em>not</em> registered here — the choice of backing store is the
     /// application's. Register an <see cref="IChannelSessionStore"/> yourself, or call
@@ -41,6 +43,13 @@ public static class SignedChannelServiceCollectionExtensions
         services.AddSingleton<ActionResolver>();
         services.AddSingleton<ConnectionRegistry>();
         services.AddSingleton<ChannelPushService>();
+        services.AddSingleton<ChannelSessionService>();
+
+        // Process-local defaults, so a single instance works with nothing else registered. Added
+        // only if absent: SignedChannel.MongoDb (or the application) replaces them for anything
+        // running more than one instance, in either registration order.
+        services.TryAddSingleton<IChannelInstructionStore, InMemoryChannelInstructionStore>();
+        services.TryAddSingleton<IChannelTokenStore, InMemoryChannelTokenStore>();
 
         services.AddScoped<PublicKeysRegistrationRequestValidatorV1>();
         services.AddScoped<SignedPayloadRequestValidatorV1>();

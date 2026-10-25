@@ -128,6 +128,16 @@ public interface IPresenceObserver
     /// <summary>A connection opened.</summary>
     Task OnConnectedAsync(string connectionId);
 
-    /// <summary>A connection closed.</summary>
+    /// <summary>
+    /// A connection registered with a session (<see cref="ChannelNames.Register"/>). The first tab
+    /// of a session arrives with the session's own registration; every later tab joins an existing
+    /// session through here, so this is where a connection row learns which session it counts for.
+    /// </summary>
+    Task OnConnectionBoundAsync(string connectionId, string sessionId, string webBrowserId);
+
+    /// <summary>
+    /// A connection closed — or turned out to be gone already when it registered, the race where
+    /// the socket's disconnect ran before its registration.
+    /// </summary>
     Task OnDisconnectedAsync(string connectionId);
 }
