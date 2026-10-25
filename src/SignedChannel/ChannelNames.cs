@@ -22,7 +22,7 @@ public static class ChannelNames
     /// <summary>Answers the connection challenge; on success the connection joins its session's group.</summary>
     public const string VerifyConnection = "Channel.VerifyConnection";
 
-    /// <summary>Exchanges an instruction pointer for the instruction itself, once.</summary>
+    /// <summary>Exchanges an instruction pointer for the instruction itself.</summary>
     public const string DownloadInstruction = "Channel.DownloadInstruction";
 
     /// <summary>"Keep me signed in": reads back the freshly slid expiry.</summary>

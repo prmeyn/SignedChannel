@@ -14,7 +14,7 @@ public sealed record DownloadInstructionRequest : MessageWebBrowserRequestBase
 /// <summary>Answer to <see cref="ChannelNames.DownloadInstruction"/>.</summary>
 public sealed record DownloadInstructionResponse : MessageWebBrowserResponseBase
 {
-    /// <summary>The instruction's name, or null if the pointer was spent, expired or not this session's.</summary>
+    /// <summary>The instruction's name, or null if the pointer has expired, is malformed or is not this session's.</summary>
     [JsonPropertyName("name")]
     public string? Name { get; init; }
 
@@ -24,8 +24,8 @@ public sealed record DownloadInstructionResponse : MessageWebBrowserResponseBase
 }
 
 /// <summary>
-/// Exchanges an instruction pointer for the instruction. Single-use: every tab of a session is
-/// pushed its own pointer, and each pointer is good for exactly one download.
+/// Exchanges an instruction pointer for the instruction. Every tab of the session is pushed the
+/// same pointer, so each can collect it until it expires; no other session can.
 /// </summary>
 internal sealed class DownloadInstructionAction : ISecureWebBrowserAction<DownloadInstructionRequest, DownloadInstructionResponse>
 {

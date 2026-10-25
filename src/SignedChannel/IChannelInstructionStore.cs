@@ -19,9 +19,15 @@ public sealed record ChannelInstruction(string Name, string? Payload);
 /// Holds instructions between the push that announces them and the download that collects them.
 /// <para>
 /// This indirection is how instructions get round RSA's size limit: only a short pointer is
-/// encrypted and pushed, and the instruction itself comes back over the signed channel. A pointer
-/// is single-use — the download removes the instruction — and carries a one-time token whose hash
-/// is all the store keeps, so a dump of the store cannot be replayed into downloads.
+/// encrypted and pushed, and the instruction itself comes back over the signed channel. The pointer
+/// carries a random token whose hash is all the store keeps, so a dump of the store cannot be
+/// turned into downloads.
+/// </para>
+/// <para>
+/// One pointer goes to every tab of the session, so a download must not consume the instruction —
+/// that would hand it to whichever tab asked first and nothing to the others. It stays collectable
+/// by its own session until it expires, and only by that session: the download is a signed request,
+/// so nobody else can present the pointer as that session.
 /// </para>
 /// </summary>
 public interface IChannelInstructionStore
@@ -30,8 +36,8 @@ public interface IChannelInstructionStore
     Task<string> StoreAsync(string sessionId, ChannelInstruction instruction, TimeSpan validity);
 
     /// <summary>
-    /// Removes and returns the instruction the pointer names, if it belongs to this session, is
-    /// unexpired, and the pointer's token matches. Null otherwise — including on a second download.
+    /// The instruction the pointer names, if it belongs to this session, is unexpired, and the
+    /// pointer's token matches; null otherwise. Does not remove it — expiry does.
     /// </summary>
     Task<ChannelInstruction?> DownloadAsync(string sessionId, string pointer);
 }
@@ -96,15 +102,11 @@ public sealed class InMemoryChannelInstructionStore : IChannelInstructionStore
             return Task.FromResult<ChannelInstruction?>(null);
         }
 
-        // Only the owning session may consume it; anyone else's attempt leaves it in place.
-        if (!_entries.TryGetValue(messageId, out var entry) || entry.SessionId != sessionId ||
-            !_entries.TryRemove(new KeyValuePair<string, Entry>(messageId, entry)))
-        {
-            return Task.FromResult<ChannelInstruction?>(null);
-        }
-
-        var valid = entry.ExpiresAt > DateTimeOffset.UtcNow && entry.TokenHash == ChannelInstructionPointer.HashToken(token);
-        return Task.FromResult(valid ? entry.Instruction : null);
+        var valid = _entries.TryGetValue(messageId, out var entry) &&
+            entry.SessionId == sessionId &&
+            entry.ExpiresAt > DateTimeOffset.UtcNow &&
+            entry.TokenHash == ChannelInstructionPointer.HashToken(token);
+        return Task.FromResult(valid ? entry!.Instruction : null);
     }
 
     private void PruneExpired()

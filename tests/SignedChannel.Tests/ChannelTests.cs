@@ -105,26 +105,32 @@ public sealed class HandshakeTests
 public sealed class InstructionTests
 {
     [Fact]
-    public async Task A_custom_instruction_reaches_the_other_tabs_and_downloads_exactly_once()
+    public async Task A_custom_instruction_reaches_every_other_tab_of_the_session()
     {
         await using var host = await TestChannelHost.StartAsync();
         var actingTab = await host.OpenSessionAsync();
         await actingTab.ConnectAsync();
+        var secondTab = actingTab.OpenAnotherTab();
+        await secondTab.ConnectAsync();
+        var thirdTab = actingTab.OpenAnotherTab();
+        await thirdTab.ConnectAsync();
 
         var (status, _) = await actingTab.SendAsync("Orders.Ship", new { orderId = "o-42" });
         Assert.Equal(202, status);
 
+        // One pointer goes to the session's group, minus the tab that asked. Every tab that receives
+        // it must be able to collect the instruction — not just whichever asks first.
         var push = actingTab.TakePush($"group:{actingTab.SessionId}-except:{actingTab.ConnectionId}", ChannelNames.InstructionPush);
-        var instruction = await actingTab.DownloadAsync(push);
-        Assert.Equal("Orders.Shipped", instruction.GetProperty("name").GetString());
-        Assert.Equal("""{"orderId":"o-42"}""", instruction.GetProperty("payload").GetString());
-
-        var again = await actingTab.DownloadAsync(push);
-        Assert.Null(again.GetProperty("name").GetString());
+        foreach (var tab in new[] { secondTab, thirdTab })
+        {
+            var instruction = await tab.DownloadAsync(push);
+            Assert.Equal("Orders.Shipped", instruction.GetProperty("name").GetString());
+            Assert.Equal("""{"orderId":"o-42"}""", instruction.GetProperty("payload").GetString());
+        }
     }
 
     [Fact]
-    public async Task Another_session_cannot_collect_an_instruction_and_does_not_spend_it()
+    public async Task Another_session_cannot_collect_an_instruction()
     {
         await using var host = await TestChannelHost.StartAsync();
         var owner = await host.OpenSessionAsync();
