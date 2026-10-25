@@ -130,8 +130,12 @@ Register any of these and the channel calls them; leave them out and it does not
 ## Status
 
 **API not yet stable.** The code is extracted from a production implementation rather than
-written fresh, so the protocol is settled even while the surface still moves; a breaking change
-bumps the major version of both halves together.
+written fresh, so the protocol is settled even while the surface still moves.
+
+**Versioning:** the major version follows the .NET version it targets (10.x is .NET 10), so it is
+*not* a breaking-change signal — a minor release can break the API. Both halves always release
+together under one version; pin the pair exactly (`10.2.0`, not `^10.1.0`) and read the release
+notes before moving.
 
 ## Licence
 
