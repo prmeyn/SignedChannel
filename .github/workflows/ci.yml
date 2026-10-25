@@ -37,9 +37,12 @@ jobs:
       # /warnaserror keeps the build at its current 0 warnings: a new warning (from a dependency
       # bump, say) turns the pull request red instead of landing unread in a log.
       run: dotnet build SignedChannel.slnx --configuration Release /warnaserror
-    # There is no .NET test project yet; the build (TreatWarningsAsErrors via Directory.Build.props)
-    # is the check. The npm client is built and its tests run (npm test builds first), so a
-    # TypeScript bump that breaks it shows here.
+    # The tests drive the real endpoints on a test server with a C# stand-in for the browser, so a
+    # protocol change that breaks the handshake or the instruction round trip turns this red.
+    - name: Test
+      run: dotnet test tests/SignedChannel.Tests/SignedChannel.Tests.csproj --configuration Release --no-build
+    # The npm client is built and its tests run (npm test builds first), so a TypeScript bump that
+    # breaks it shows here.
     - name: Setup Node
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:

@@ -9,7 +9,7 @@ namespace SignedChannel;
 /// </summary>
 public sealed class PushMessage
 {
-    /// <summary>What the client should do with this message.</summary>
+    /// <summary>What the client should do with this message — always one of the channel's own names.</summary>
     public required string ActionName { get; init; }
 
     /// <summary>The payload, encrypted to the session's encryption public key. Empty when there is none.</summary>
@@ -20,16 +20,18 @@ public sealed class PushMessage
 }
 
 /// <summary>
-/// Pushes encrypted messages to a session's connections over the presence hub.
+/// Pushes to a session's browser tabs over the presence hub.
 /// <para>
-/// One client-side method receives everything (<c>ReceiveEncryptedMessage</c>) with the real
-/// intent inside the encrypted payload, so the hub surface stays fixed no matter how many kinds of
-/// message the application grows. SignalR groups are keyed by session id, which is what makes
-/// "tell every tab of this session" a single call.
+/// The application pushes <em>instructions</em> (<see cref="PushInstructionAsync"/>): a name it
+/// defines and a payload of any size. The instruction is stored, only a short pointer is pushed —
+/// encrypted, because RSA payloads are size-limited — and the browser downloads the instruction
+/// over the signed channel. The raw push primitives underneath are the channel's own, for its
+/// lifecycle messages, and are not exposed.
 /// </para>
 /// <para>
-/// Payloads are encrypted with RSA and are therefore size-limited. For anything larger than a
-/// short string, push a pointer and let the client fetch the body over the signed channel.
+/// One client-side method receives everything (<c>ReceiveEncryptedMessage</c>), so the hub surface
+/// stays fixed no matter how many kinds of instruction the application grows. SignalR groups are
+/// keyed by session id, which is what makes "tell every tab of this session" a single call.
 /// </para>
 /// </summary>
 public class ChannelPushService
@@ -39,43 +41,70 @@ public class ChannelPushService
 
     private readonly IHubContext<PresenceHub> _hub;
     private readonly IChannelSessionStore _sessions;
+    private readonly IChannelInstructionStore _instructions;
 
     /// <summary>Creates the push service.</summary>
-    public ChannelPushService(IHubContext<PresenceHub> hub, IChannelSessionStore sessions)
+    public ChannelPushService(IHubContext<PresenceHub> hub, IChannelSessionStore sessions, IChannelInstructionStore instructions)
     {
         _hub = hub;
         _sessions = sessions;
+        _instructions = instructions;
+    }
+
+    /// <summary>
+    /// Sends an instruction to every verified tab of the session, or to all but one.
+    /// </summary>
+    /// <param name="sessionId">The session to address.</param>
+    /// <param name="name">The instruction's name — the application's own event name.</param>
+    /// <param name="payload">Data for it, typically JSON; null when there is none.</param>
+    /// <param name="validity">How long the browser has to collect it.</param>
+    /// <param name="exceptConnectionId">
+    /// A connection to leave out — typically the tab that caused the change, which already knows.
+    /// </param>
+    public async Task PushInstructionAsync(string sessionId, string name, string? payload, TimeSpan validity, string? exceptConnectionId = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        var pointer = await _instructions.StoreAsync(sessionId, new ChannelInstruction(name, payload), validity);
+        var expiry = DateTimeOffset.UtcNow.Add(validity);
+
+        if (exceptConnectionId is null)
+        {
+            await SendToSessionAsync(sessionId, ChannelNames.InstructionPush, pointer, expiry);
+        }
+        else
+        {
+            await SendToSessionExceptAsync(sessionId, exceptConnectionId, ChannelNames.InstructionPush, pointer, expiry);
+        }
     }
 
     /// <summary>
     /// Pushes to one connection. Needed before a connection has been added to its session's group
     /// — during the connection challenge, for instance.
     /// </summary>
-    public async Task SendToConnectionAsync(string connectionId, string sessionId, string actionName, string? payload, DateTimeOffset expiry)
+    internal async Task SendToConnectionAsync(string connectionId, string sessionId, string actionName, string? payload, DateTimeOffset expiry)
     {
         var message = await BuildAsync(sessionId, actionName, payload, expiry);
         await _hub.Clients.Client(connectionId).SendAsync(ReceiveEncryptedMessageMethod, message);
     }
 
     /// <summary>Pushes to every group-bound connection of the session.</summary>
-    public async Task SendToSessionAsync(string sessionId, string actionName, string? payload, DateTimeOffset expiry)
+    internal async Task SendToSessionAsync(string sessionId, string actionName, string? payload, DateTimeOffset expiry)
     {
         var message = await BuildAsync(sessionId, actionName, payload, expiry);
         await _hub.Clients.Group(sessionId).SendAsync(ReceiveEncryptedMessageMethod, message);
     }
 
-    /// <summary>
-    /// Pushes to the session's connections except one — typically the tab that caused the change,
-    /// which already knows.
-    /// </summary>
-    public async Task SendToSessionExceptAsync(string sessionId, string connectionIdToExclude, string actionName, string? payload, DateTimeOffset expiry)
+    /// <summary>Pushes to the session's connections except one.</summary>
+    internal async Task SendToSessionExceptAsync(string sessionId, string connectionIdToExclude, string actionName, string? payload, DateTimeOffset expiry)
     {
         var message = await BuildAsync(sessionId, actionName, payload, expiry);
         await _hub.Clients.GroupExcept(sessionId, connectionIdToExclude).SendAsync(ReceiveEncryptedMessageMethod, message);
     }
 
     /// <summary>Binds a connection to its session's group, so session-wide pushes reach it.</summary>
-    public Task AddConnectionToGroupAsync(string connectionId, string sessionId) =>
+    internal Task AddConnectionToGroupAsync(string connectionId, string sessionId) =>
         _hub.Groups.AddToGroupAsync(connectionId, sessionId);
 
     private async Task<PushMessage> BuildAsync(string sessionId, string actionName, string? payload, DateTimeOffset expiry)

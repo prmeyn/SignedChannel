@@ -1,0 +1,341 @@
+using System.Collections.Concurrent;
+using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using PublicKeyUtils.CryptoKeys;
+
+namespace SignedChannel.Tests;
+
+/// <summary>A push the fake hub saw, and where it was addressed.</summary>
+public sealed record SentPush(string Target, PushMessage Message);
+
+/// <summary>
+/// Stands in for SignalR: records every push and every group join, so a test can read back what a
+/// real browser would have received.
+/// </summary>
+public sealed class RecordingHubContext : IHubContext<PresenceHub>, IHubClients, IGroupManager
+{
+    public ConcurrentQueue<SentPush> Sent { get; } = new();
+
+    public ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> GroupMembers { get; } = new();
+
+    IHubClients IHubContext<PresenceHub>.Clients => this;
+
+    IGroupManager IHubContext<PresenceHub>.Groups => this;
+
+    IClientProxy IHubClients<IClientProxy>.All => Proxy("all");
+
+    IClientProxy IHubClients<IClientProxy>.AllExcept(IReadOnlyList<string> excludedConnectionIds) => Proxy("all-except");
+
+    IClientProxy IHubClients<IClientProxy>.Client(string connectionId) => Proxy($"connection:{connectionId}");
+
+    IClientProxy IHubClients<IClientProxy>.Clients(IReadOnlyList<string> connectionIds) => Proxy("connections");
+
+    IClientProxy IHubClients<IClientProxy>.Group(string groupName) => Proxy($"group:{groupName}");
+
+    IClientProxy IHubClients<IClientProxy>.GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) =>
+        Proxy($"group:{groupName}-except:{string.Join(",", excludedConnectionIds)}");
+
+    IClientProxy IHubClients<IClientProxy>.Groups(IReadOnlyList<string> groupNames) => Proxy("groups");
+
+    IClientProxy IHubClients<IClientProxy>.User(string userId) => Proxy($"user:{userId}");
+
+    IClientProxy IHubClients<IClientProxy>.Users(IReadOnlyList<string> userIds) => Proxy("users");
+
+    public Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+    {
+        GroupMembers.GetOrAdd(groupName, _ => new())[connectionId] = 0;
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+    {
+        if (GroupMembers.TryGetValue(groupName, out var members))
+        {
+            members.TryRemove(connectionId, out _);
+        }
+        return Task.CompletedTask;
+    }
+
+    private RecordingProxy Proxy(string target) => new(this, target);
+
+    private sealed class RecordingProxy(RecordingHubContext hub, string target) : IClientProxy
+    {
+        public Task SendCoreAsync(string method, object?[] args, CancellationToken cancellationToken = default)
+        {
+            Assert.Equal(ChannelPushService.ReceiveEncryptedMessageMethod, method);
+            hub.Sent.Enqueue(new SentPush(target, (PushMessage)args[0]!));
+            return Task.CompletedTask;
+        }
+    }
+}
+
+/// <summary>Session storage in a dictionary, honouring the store contract (sign-in clears the tombstone).</summary>
+public sealed class InMemorySessionStore : IChannelSessionStore
+{
+    public ConcurrentDictionary<string, ChannelSessionRecord> Sessions { get; } = new();
+
+    public Task<ChannelSessionRecord?> GetByIdAsync(string sessionId) =>
+        Task.FromResult(Sessions.TryGetValue(sessionId, out var record) ? record : null);
+
+    public Task CreateAsync(ChannelSessionRecord record)
+    {
+        Sessions[record.Id] = record;
+        return Task.CompletedTask;
+    }
+
+    public Task AddConnectionIdAsync(string sessionId, string connectionId)
+    {
+        if (Sessions.TryGetValue(sessionId, out var record) && !record.ConnectionIds.Contains(connectionId))
+        {
+            record.ConnectionIds.Add(connectionId);
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task<ChannelSessionRecord?> RemoveConnectionIdAsync(string connectionId)
+    {
+        var record = Sessions.Values.FirstOrDefault(r => r.ConnectionIds.Remove(connectionId));
+        return Task.FromResult(record);
+    }
+
+    public Task PruneConnectionIdsAsync(string sessionId, IReadOnlyCollection<string> deadConnectionIds)
+    {
+        if (Sessions.TryGetValue(sessionId, out var record))
+        {
+            record.ConnectionIds.RemoveAll(deadConnectionIds.Contains);
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task SetUserIdAsync(string sessionId, string userId)
+    {
+        var record = Sessions[sessionId];
+        record.UserId = userId;
+        record.LogoutDateTimeOffset = null;
+        record.LastActivityDateTimeOffset = DateTimeOffset.UtcNow;
+        return Task.CompletedTask;
+    }
+
+    public Task SetLogoutAsync(string sessionId)
+    {
+        Sessions[sessionId].LogoutDateTimeOffset = DateTimeOffset.UtcNow;
+        return Task.CompletedTask;
+    }
+
+    public Task TouchActivityAsync(string sessionId, DateTimeOffset now)
+    {
+        Sessions[sessionId].LastActivityDateTimeOffset = now;
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// A real ASP.NET Core host running the channel on a test server, with SignalR replaced by
+/// <see cref="RecordingHubContext"/>.
+/// </summary>
+public sealed class TestChannelHost : IAsyncDisposable
+{
+    private readonly WebApplication _app;
+
+    private TestChannelHost(WebApplication app)
+    {
+        _app = app;
+        Client = app.GetTestClient();
+    }
+
+    public HttpClient Client { get; }
+
+    public IServiceProvider Services => _app.Services;
+
+    public RecordingHubContext Hub => (RecordingHubContext)Services.GetRequiredService<IHubContext<PresenceHub>>();
+
+    public InMemorySessionStore Sessions => (InMemorySessionStore)Services.GetRequiredService<IChannelSessionStore>();
+
+    public static async Task<TestChannelHost> StartAsync(Action<IServiceCollection>? configureServices = null)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddSignedChannel(options =>
+        {
+            options.ActionAssembly = typeof(TestChannelHost).Assembly;
+            options.RootNamespace = "SignedChannel.Tests.Host";
+        });
+        builder.Services.AddSingleton<IChannelSessionStore, InMemorySessionStore>();
+        builder.Services.AddSingleton<IHubContext<PresenceHub>, RecordingHubContext>();
+        configureServices?.Invoke(builder.Services);
+
+        var app = builder.Build();
+        app.MapSignedChannel();
+        await app.StartAsync();
+        return new TestChannelHost(app);
+    }
+
+    /// <summary>A browser tab with fresh keys, registered as a new session.</summary>
+    public async Task<TestBrowser> OpenSessionAsync()
+    {
+        var browser = new TestBrowser(this, TestBrowser.NewConnectionId());
+        await browser.RegisterSessionAsync();
+        return browser;
+    }
+
+    public async ValueTask DisposeAsync() => await _app.DisposeAsync();
+}
+
+/// <summary>
+/// The browser half of the protocol, in C#: the same keys, envelopes and signatures the npm client
+/// produces, so the tests drive the real endpoints rather than calling actions directly.
+/// </summary>
+public sealed class TestBrowser
+{
+    private const string HashAlgorithm = "SHA-384";
+
+    private readonly TestChannelHost _host;
+    private readonly ECDsa _signingKey;
+    private readonly RSA _encryptionKey;
+    private string? _cookie;
+
+    public TestBrowser(TestChannelHost host, string connectionId, TestBrowser? sameSessionAs = null)
+    {
+        _host = host;
+        ConnectionId = connectionId;
+        _signingKey = sameSessionAs?._signingKey ?? ECDsa.Create(ECCurve.NamedCurves.nistP384);
+        _encryptionKey = sameSessionAs?._encryptionKey ?? RSA.Create(2048);
+        SessionId = sameSessionAs?.SessionId ?? string.Empty;
+        _cookie = sameSessionAs?._cookie;
+
+        // A live socket, as the hub would have recorded it on connect.
+        host.Services.GetRequiredService<ConnectionRegistry>().Add(connectionId);
+    }
+
+    public string SessionId { get; private set; }
+
+    public string ConnectionId { get; }
+
+    public static string NewConnectionId() => Guid.NewGuid().ToString("N");
+
+    /// <summary>A second tab of the same session, on its own connection.</summary>
+    public TestBrowser OpenAnotherTab() => new(_host, NewConnectionId(), this);
+
+    public async Task RegisterSessionAsync()
+    {
+        var ec = _signingKey.ExportParameters(includePrivateParameters: false);
+        var verifyingKey = ChannelCrypto.Serialize(new SignVerifyPublicKey
+        {
+            Kty = "EC",
+            Crv = "P-384",
+            X = Base64Url(ec.Q.X!),
+            Y = Base64Url(ec.Q.Y!),
+            KeyOps = ["verify"]
+        });
+
+        var rsa = _encryptionKey.ExportParameters(includePrivateParameters: false);
+        var encryptionKey = ChannelCrypto.Serialize(new EncryptDecryptPublicKey
+        {
+            Algorithm = "RSA-OAEP-256",
+            E = Base64Url(rsa.Exponent!),
+            N = Base64Url(rsa.Modulus!),
+            KeyOps = ["encrypt"]
+        });
+
+        var signedBlob = ChannelCrypto.Serialize(new EncryptionPublicKeyWithTimestampRequest(encryptionKey, DateTimeOffset.UtcNow));
+        var response = await _host.Client.PostAsJsonAsync("/api/session/register", new SessionPublicKeysRegistrationRequest(
+            WebBrowserId: "browser-1",
+            SignalRConnectionId: ConnectionId,
+            SelectedLanguageIsoCode: "en",
+            VerifyingPublicKeyBase64: verifyingKey,
+            EncryptionPublicKeyRequestWithTimestampAsBase64: signedBlob,
+            EncryptionPublicKeySignatureAsBase64: Sign(signedBlob),
+            HashAlgorithm: HashAlgorithm));
+        response.EnsureSuccessStatusCode();
+        CaptureCookie(response);
+
+        var body = await response.Content.ReadFromJsonAsync<SessionPublicKeysRegistrationResponse>();
+        SessionId = Decrypt(body!.EncryptedSessionIdAsBase64);
+    }
+
+    /// <summary>Sends a signed action; returns the status code and the response body as JSON.</summary>
+    public async Task<(int Status, JsonElement Body)> SendAsync(string actionName, object? payload = null)
+    {
+        var payloadWithPage = payload is null
+            ? new Dictionary<string, object?>()
+            : JsonSerializer.Deserialize<Dictionary<string, object?>>(JsonSerializer.Serialize(payload))!;
+        payloadWithPage["currentUrl"] = "https://app.test/page";
+
+        var message = ChannelCrypto.Serialize(new WebBrowserMessagePayloadRequest(
+            SessionId, ConnectionId, actionName, DateTimeOffset.UtcNow,
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payloadWithPage)))));
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/action")
+        {
+            Content = JsonContent.Create(new SignedWebBrowserPayloadRequest(message, Sign(message), HashAlgorithm))
+        };
+        if (_cookie is not null)
+        {
+            request.Headers.Add("Cookie", _cookie);
+        }
+
+        var response = await _host.Client.SendAsync(request);
+        CaptureCookie(response);
+        var text = await response.Content.ReadAsStringAsync();
+        var body = string.IsNullOrWhiteSpace(text) ? default : JsonDocument.Parse(text).RootElement.Clone();
+        return ((int)response.StatusCode, body);
+    }
+
+    /// <summary>Runs the connection handshake: Register, answer the challenge, confirm the group join.</summary>
+    public async Task<JsonElement> ConnectAsync()
+    {
+        var (status, registered) = await SendAsync(ChannelNames.Register);
+        Assert.Equal(202, status);
+
+        var challenge = TakePush($"connection:{ConnectionId}", ChannelNames.ConnectionChallengePush);
+        var (verifyStatus, verified) = await SendAsync(ChannelNames.VerifyConnection, new { token = Decrypt(challenge.EncryptedPayloadAsBase64) });
+        Assert.Equal(202, verifyStatus);
+        Assert.True(verified.GetProperty("verified").GetBoolean());
+        return registered;
+    }
+
+    /// <summary>Removes and returns the latest push to the target with the given name.</summary>
+    public PushMessage TakePush(string target, string actionName)
+    {
+        var match = _host.Hub.Sent.LastOrDefault(p => p.Target == target && p.Message.ActionName == actionName);
+        Assert.NotNull(match);
+        return match.Message;
+    }
+
+    /// <summary>Downloads the instruction an <see cref="ChannelNames.InstructionPush"/> points at.</summary>
+    public async Task<JsonElement> DownloadAsync(PushMessage instructionPush)
+    {
+        Assert.Equal(ChannelNames.InstructionPush, instructionPush.ActionName);
+        var (status, body) = await SendAsync(ChannelNames.DownloadInstruction, new { pointer = Decrypt(instructionPush.EncryptedPayloadAsBase64) });
+        Assert.Equal(202, status);
+        return body;
+    }
+
+    public string Decrypt(string encryptedBase64) =>
+        Encoding.UTF8.GetString(_encryptionKey.Decrypt(Convert.FromBase64String(encryptedBase64), RSAEncryptionPadding.OaepSHA256));
+
+    public string Sign(string message) =>
+        Convert.ToBase64String(_signingKey.SignData(Encoding.UTF8.GetBytes(message), HashAlgorithmName.SHA384));
+
+    private void CaptureCookie(HttpResponseMessage response)
+    {
+        if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
+        {
+            foreach (var cookie in cookies)
+            {
+                var pair = cookie.Split(';')[0];
+                _cookie = pair.EndsWith('=') ? null : pair;
+            }
+        }
+    }
+
+    private static string Base64Url(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+}

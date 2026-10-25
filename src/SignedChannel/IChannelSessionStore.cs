@@ -34,9 +34,13 @@ public interface IChannelSessionStore
     Task PruneConnectionIdsAsync(string sessionId, IReadOnlyCollection<string> deadConnectionIds);
 
     /// <summary>
-    /// Marks the session as belonging to a user — this is the sign-in. The channel never decides
-    /// this: the application calls it once it has authenticated the person by whatever means it
-    /// uses, and the value stays opaque.
+    /// Marks the session as belonging to a user — this is the sign-in. Applications call it through
+    /// <see cref="ChannelSessionService.SignInAsync"/>, which also tells the session's tabs.
+    /// <para>
+    /// Implementations must also clear <see cref="ChannelSessionRecord.LogoutDateTimeOffset"/> and
+    /// start the idle clock. Leaving a tombstone set is subtly fatal: the sign-in succeeds and the
+    /// very next request is still treated as signed out, looping back to sign-in forever.
+    /// </para>
     /// </summary>
     Task SetUserIdAsync(string sessionId, string userId);
 

@@ -8,6 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The raw push primitives are internal; the tests drive the built-in actions through them. -->
+    <InternalsVisibleTo Include="SignedChannel.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Endpoints, HttpRequest and the SignalR hub. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
