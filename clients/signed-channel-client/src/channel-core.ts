@@ -251,7 +251,7 @@ export class ChannelCore {
     const instruction = await this.send<{ name: string | null; payload: string | null }>(
       REQUEST_DOWNLOAD_INSTRUCTION, { pointer });
     if (!instruction?.name) {
-      return; // spent, expired, or not this session's
+      return; // expired, or not this session's
     }
     for (const handler of [...(this.handlers.get(instruction.name) ?? [])]) {
       try {

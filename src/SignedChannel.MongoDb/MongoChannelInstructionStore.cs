@@ -69,9 +69,9 @@ public sealed class MongoChannelInstructionStore : IChannelInstructionStore
             return null;
         }
 
-        // Deleted in the same round trip it is read, so two downloads cannot both succeed. The
-        // session is part of the filter: another session's attempt leaves the instruction in place.
-        var document = await _instructions.FindOneAndDeleteAsync(d => d.Id == messageId && d.SessionId == sessionId);
+        // Read, not deleted: every tab of the session was pushed the same pointer, and each must be
+        // able to collect it. The TTL index removes it once it expires.
+        var document = await _instructions.Find(d => d.Id == messageId && d.SessionId == sessionId).FirstOrDefaultAsync();
         if (document is null || document.ExpireAt < DateTime.UtcNow ||
             document.TokenHash != ChannelInstructionPointer.HashToken(token))
         {
