@@ -13,7 +13,7 @@ npm install signed-channel-client
 
 ## What's in it
 
-- `AuthChannelCore` — the channel: handshake, request signing, push decryption, session expiry.
+- `ChannelCore` — the channel: handshake, request signing, instructions, sign-in state, session expiry.
 - `SessionApi`, `SessionStore`, `CryptoCore` — the pieces it runs on.
 - `SignalRChannelConnection` — a `ChannelConnection` over SignalR, with automatic reconnect.
 - `ChannelConnection`, `PushMessage`, and the base64 helpers.
@@ -23,13 +23,30 @@ its `@microsoft/signalr` import; a page that loads `signalr.min.js` from a scrip
 global. Both get identical behaviour, and the script-tag host doesn't bundle a second copy.
 
 ```ts
-import { AuthChannelCore, SessionApi, SessionStore, CryptoCore, SignalRChannelConnection } from 'signed-channel-client';
+import { ChannelCore, SessionApi, SessionStore, CryptoCore, SignalRChannelConnection } from 'signed-channel-client';
 
 const crypto = new CryptoCore();
 const store = new SessionStore();
 const connection = new SignalRChannelConnection({ signalR, onStatusChange: (s) => render(s) });
-new AuthChannelCore(connection, new SessionApi(crypto, store), store, crypto).start('en');
+const channel = new ChannelCore(connection, new SessionApi(crypto, store), store, crypto);
+channel.onSignedOut = () => location.assign('/sign-in');
+channel.start('en');
 ```
+
+## Using it
+
+- **Requests:** `await channel.send<MyResponse>('Orders.Get', { orderId })` signs and posts an
+  action. A rejected request resolves to an empty object, so optional-chain the result.
+- **Instructions** — the server's custom events, pushed with `PushInstructionAsync`:
+  ```ts
+  const unsubscribe = channel.on('Orders.Shipped', (payload) => { /* payload: string | null */ });
+  ```
+  Any number of handlers can share a name; a name nobody listens to is simply dropped.
+- **Sign-in state:** `channel.isSignedIn`, `onSignedIn`, `onSignedOut`, and `channel.signOut()`.
+  A sign-out anywhere — another tab, the server, an expired session — ends in `onSignedOut`.
+- **Expiry:** `sessionExpiresAtUtc`, `warningSeconds`, `onExpiryChange`, and `keepAlive()`.
+
+Names starting `Channel.` are the protocol's own; don't use them for instructions.
 
 ## Key storage
 
