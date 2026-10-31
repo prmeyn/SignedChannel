@@ -14,12 +14,14 @@ public class ChannelSessionService
 
     private readonly IChannelSessionStore _sessions;
     private readonly ChannelPushService _push;
+    private readonly SessionExpiryPolicy _expiry;
 
     /// <summary>Creates the service.</summary>
-    public ChannelSessionService(IChannelSessionStore sessions, ChannelPushService push)
+    public ChannelSessionService(IChannelSessionStore sessions, ChannelPushService push, SessionExpiryPolicy expiry)
     {
         _sessions = sessions;
         _push = push;
+        _expiry = expiry;
     }
 
     /// <summary>
@@ -61,25 +63,49 @@ public class ChannelSessionService
     /// <see cref="ChannelNames.SignedOutPush"/>. What a user means by "sign out" — and what
     /// <see cref="ChannelNames.SignOut"/> does. Another person signed in elsewhere in the same
     /// browser is left alone.
+    /// <para>
+    /// A session that has already expired is not signed out: it ended at its expiry, and is stamped
+    /// so (no push — its tabs learn <see cref="ChannelNames.SessionExpiredCode"/> on their next
+    /// request). Expiry is computed rather than written, so before 10.5 an abandoned session was
+    /// stamped as signed out now, which made it look as if it had lasted until this sign-out.
+    /// </para>
     /// </summary>
     /// <param name="sessionId">Any session of the browser — usually the one asking.</param>
     /// <param name="exceptConnectionId">A tab of <paramref name="sessionId"/> to leave out — the one that asked, which already knows.</param>
-    /// <returns>How many sessions were signed out.</returns>
+    /// <returns>How many sessions were signed out (not counting the expired ones).</returns>
     public async Task<int> SignOutBrowserAsync(string sessionId, string? exceptConnectionId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
         var sessionIds = await _sessions.GetSignedInSessionIdsOfBrowserAsync(sessionId);
+        var signedOut = 0;
         foreach (var id in sessionIds)
         {
+            if (await EndIfExpiredAsync(id))
+            {
+                continue;
+            }
             await SignOutAsync(id, id == sessionId ? exceptConnectionId : null);
+            signedOut++;
         }
         // The asking session itself, even if it was already anonymous or signed out (idempotent).
         if (!sessionIds.Contains(sessionId))
         {
             await SignOutAsync(sessionId, exceptConnectionId);
         }
-        return sessionIds.Count;
+        return signedOut;
+    }
+
+    /// <summary>Stamps the session ended at its expiry if that has passed; whether it had.</summary>
+    private async Task<bool> EndIfExpiredAsync(string sessionId)
+    {
+        var session = await _sessions.GetByIdAsync(sessionId);
+        if (session is null || !_expiry.IsExpired(session, DateTimeOffset.UtcNow))
+        {
+            return false;
+        }
+        await _sessions.SetLogoutAsync(sessionId, _expiry.ComputeExpiry(session));
+        return true;
     }
 
     /// <summary>

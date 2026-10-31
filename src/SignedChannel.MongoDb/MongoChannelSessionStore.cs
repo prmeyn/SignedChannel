@@ -124,10 +124,15 @@ public class MongoChannelSessionStore<TRecord> : IChannelSessionStore
     }
 
     /// <inheritdoc />
-    public virtual Task SetLogoutAsync(string sessionId)
+    public virtual Task SetLogoutAsync(string sessionId) => SetLogoutAsync(sessionId, DateTimeOffset.UtcNow);
+
+    /// <inheritdoc />
+    public virtual Task SetLogoutAsync(string sessionId, DateTimeOffset loggedOutAt)
     {
-        var update = Builders<TRecord>.Update.Set(session => session.LogoutDateTimeOffset, DateTimeOffset.UtcNow);
-        return Sessions.UpdateOneAsync(session => session.Id == sessionId, update);
+        // Only a session not yet signed out: the first stamp is when it ended, and signing out an
+        // ended session again (before 10.5) moved its end to the later call.
+        var update = Builders<TRecord>.Update.Set(session => session.LogoutDateTimeOffset, loggedOutAt);
+        return Sessions.UpdateOneAsync(session => session.Id == sessionId && session.LogoutDateTimeOffset == null, update);
     }
 
     /// <inheritdoc />

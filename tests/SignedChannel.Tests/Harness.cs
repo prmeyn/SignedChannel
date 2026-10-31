@@ -140,9 +140,12 @@ public sealed class InMemorySessionStore : IChannelSessionStore
         return Task.FromResult(ids);
     }
 
-    public Task SetLogoutAsync(string sessionId)
+    public Task SetLogoutAsync(string sessionId) => SetLogoutAsync(sessionId, DateTimeOffset.UtcNow);
+
+    public Task SetLogoutAsync(string sessionId, DateTimeOffset loggedOutAt)
     {
-        Sessions[sessionId].LogoutDateTimeOffset = DateTimeOffset.UtcNow;
+        // As MongoChannelSessionStore: the first stamp wins.
+        Sessions[sessionId].LogoutDateTimeOffset ??= loggedOutAt;
         return Task.CompletedTask;
     }
 
