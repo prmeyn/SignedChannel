@@ -126,6 +126,20 @@ public sealed class InMemorySessionStore : IChannelSessionStore
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<string>> GetSignedInSessionIdsOfBrowserAsync(string sessionId)
+    {
+        // As MongoChannelSessionStore: same cookie secret (browser) and same person, still signed in.
+        if (!Sessions.TryGetValue(sessionId, out var session) || session.UserId is null)
+        {
+            return Task.FromResult<IReadOnlyList<string>>([]);
+        }
+        IReadOnlyList<string> ids = Sessions.Values
+            .Where(s => s.CookieIdHash == session.CookieIdHash && s.UserId == session.UserId && s.LogoutDateTimeOffset is null)
+            .Select(s => s.Id)
+            .ToList();
+        return Task.FromResult(ids);
+    }
+
     public Task SetLogoutAsync(string sessionId)
     {
         Sessions[sessionId].LogoutDateTimeOffset = DateTimeOffset.UtcNow;
@@ -202,16 +216,23 @@ public sealed class TestBrowser
     private readonly TestChannelHost _host;
     private readonly ECDsa _signingKey;
     private readonly RSA _encryptionKey;
-    private string? _cookie;
+    /// <summary>The browser's cookies — shared by every tab and session of one browser, as a real one does.</summary>
+    private readonly CookieJar _cookies;
 
-    public TestBrowser(TestChannelHost host, string connectionId, TestBrowser? sameSessionAs = null)
+    /// <summary>One browser's cookie store.</summary>
+    public sealed class CookieJar
+    {
+        public string? Value { get; set; }
+    }
+
+    public TestBrowser(TestChannelHost host, string connectionId, TestBrowser? sameSessionAs = null, CookieJar? sameBrowserAs = null)
     {
         _host = host;
         ConnectionId = connectionId;
         _signingKey = sameSessionAs?._signingKey ?? ECDsa.Create(ECCurve.NamedCurves.nistP384);
         _encryptionKey = sameSessionAs?._encryptionKey ?? RSA.Create(2048);
         SessionId = sameSessionAs?.SessionId ?? string.Empty;
-        _cookie = sameSessionAs?._cookie;
+        _cookies = sameSessionAs?._cookies ?? sameBrowserAs ?? new CookieJar();
 
         // A live socket, as the hub would have recorded it on connect.
         host.Services.GetRequiredService<ConnectionRegistry>().Add(connectionId);
@@ -225,6 +246,21 @@ public sealed class TestBrowser
 
     /// <summary>A second tab of the same session, on its own connection.</summary>
     public TestBrowser OpenAnotherTab() => new(_host, NewConnectionId(), this);
+
+    /// <summary>A new tab in the same browser: its own keys and session, the browser's cookies.</summary>
+    public async Task<TestBrowser> OpenNewSessionInSameBrowserAsync()
+    {
+        var tab = new TestBrowser(_host, NewConnectionId(), sameBrowserAs: _cookies);
+        await tab.RegisterSessionAsync();
+        return tab;
+    }
+
+    /// <summary>The browser's cookie as the server last set it (null when none).</summary>
+    public string? Cookie
+    {
+        get => _cookies.Value;
+        set => _cookies.Value = value;
+    }
 
     public async Task RegisterSessionAsync()
     {
@@ -248,14 +284,22 @@ public sealed class TestBrowser
         });
 
         var signedBlob = ChannelCrypto.Serialize(new EncryptionPublicKeyWithTimestampRequest(encryptionKey, DateTimeOffset.UtcNow));
-        var response = await _host.Client.PostAsJsonAsync("/api/session/register", new SessionPublicKeysRegistrationRequest(
-            WebBrowserId: "browser-1",
-            SignalRConnectionId: ConnectionId,
-            SelectedLanguageIsoCode: "en",
-            VerifyingPublicKeyBase64: verifyingKey,
-            EncryptionPublicKeyRequestWithTimestampAsBase64: signedBlob,
-            EncryptionPublicKeySignatureAsBase64: Sign(signedBlob),
-            HashAlgorithm: HashAlgorithm));
+        using var register = new HttpRequestMessage(HttpMethod.Post, "/api/session/register")
+        {
+            Content = JsonContent.Create(new SessionPublicKeysRegistrationRequest(
+                WebBrowserId: "browser-1",
+                SignalRConnectionId: ConnectionId,
+                SelectedLanguageIsoCode: "en",
+                VerifyingPublicKeyBase64: verifyingKey,
+                EncryptionPublicKeyRequestWithTimestampAsBase64: signedBlob,
+                EncryptionPublicKeySignatureAsBase64: Sign(signedBlob),
+                HashAlgorithm: HashAlgorithm))
+        };
+        if (_cookies.Value is not null)
+        {
+            register.Headers.Add("Cookie", _cookies.Value);
+        }
+        var response = await _host.Client.SendAsync(register);
         response.EnsureSuccessStatusCode();
         CaptureCookie(response);
 
@@ -279,9 +323,9 @@ public sealed class TestBrowser
         {
             Content = JsonContent.Create(new SignedWebBrowserPayloadRequest(message, Sign(message), HashAlgorithm))
         };
-        if (_cookie is not null)
+        if (_cookies.Value is not null)
         {
-            request.Headers.Add("Cookie", _cookie);
+            request.Headers.Add("Cookie", _cookies.Value);
         }
 
         var response = await _host.Client.SendAsync(request);
@@ -334,7 +378,7 @@ public sealed class TestBrowser
             foreach (var cookie in cookies)
             {
                 var pair = cookie.Split(';')[0];
-                _cookie = pair.EndsWith('=') ? null : pair;
+                _cookies.Value = pair.EndsWith('=') ? null : pair;
             }
         }
     }

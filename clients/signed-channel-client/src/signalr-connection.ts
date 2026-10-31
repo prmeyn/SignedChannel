@@ -53,6 +53,8 @@ export class SignalRChannelConnection implements ChannelConnection {
   private connection?: HubConnectionLike;
   private id: string | null = null;
   private started = false;
+  /** The page-hide stop in flight; a restore waits for it, since a stopping connection cannot start. */
+  private stopping: Promise<void> | null = null;
   private readonly connectedCallbacks: Array<() => void> = [];
 
   constructor(private readonly options: SignalRChannelConnectionOptions) {}
@@ -86,21 +88,31 @@ export class SignalRChannelConnection implements ChannelConnection {
     this.connection.onreconnected(() => this.markConnected());
     this.connection.onclose(() => this.setStatus('Disconnected'));
 
-    // Disconnect promptly on a real page unload (a redirect, a refresh, closing the tab) so the
-    // server drops this connection immediately instead of waiting out the SignalR timeout —
-    // anything counting live connections would otherwise show a phantom. `persisted` means the
-    // page is being frozen into the bfcache and may come back, so leave that one alone.
+    // Disconnect on EVERY page hide — a redirect, a refresh, closing the tab, and also the page
+    // being frozen into the back/forward cache (`persisted`) — so the server drops the connection
+    // at once instead of counting a phantom. Leaving a cached page's connection open (as before
+    // 10.3.1) kept it alive for as long as the browser kept the page: Chrome caches pages with a
+    // WebSocket and keeps them 10 minutes, so a page left behind (the login page after signing
+    // in) read as open on the server all that time. A page restored from the cache reconnects
+    // instead (pageshow below), which the channel treats like any reconnect: a new handshake.
     if (typeof window !== 'undefined') {
-      window.addEventListener('pagehide', (event) => {
-        if (!event.persisted) {
-          void this.connection?.stop();
+      window.addEventListener('pagehide', () => {
+        this.stopping = this.connection?.stop().catch(() => undefined) ?? null;
+      });
+      window.addEventListener('pageshow', (event) => {
+        if (event.persisted) {
+          void (this.stopping ?? Promise.resolve()).then(() => this.connect());
         }
       });
     }
 
+    this.connect();
+  }
+
+  private connect(): void {
     this.setStatus('Connecting');
     this.connection
-      .start()
+      ?.start()
       .then(() => this.markConnected())
       .catch(() => this.setStatus('Disconnected'));
   }

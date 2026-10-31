@@ -42,6 +42,10 @@ public class MongoChannelSessionStore<TRecord> : IChannelSessionStore
         ArgumentNullException.ThrowIfNull(mongoService);
         Sessions = mongoService.Database.GetCollection<TRecord>(collectionName);
         _sessionsAsBase = mongoService.Database.GetCollection<ChannelSessionRecord>(collectionName);
+
+        // A browser's sessions share one cookie secret; signing out the browser finds them by it.
+        Sessions.Indexes.CreateOne(new CreateIndexModel<TRecord>(
+            Builders<TRecord>.IndexKeys.Ascending(session => session.CookieIdHash).Ascending(session => session.UserId)));
     }
 
     /// <summary>Collection sessions are stored in unless another name is given.</summary>
@@ -101,6 +105,22 @@ public class MongoChannelSessionStore<TRecord> : IChannelSessionStore
             .Set(session => session.UserId, userId)
             .Set(session => session.LastActivityDateTimeOffset, DateTimeOffset.UtcNow);
         return Sessions.UpdateOneAsync(session => session.Id == sessionId && session.LogoutDateTimeOffset == null, update);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<IReadOnlyList<string>> GetSignedInSessionIdsOfBrowserAsync(string sessionId)
+    {
+        var session = await GetByIdAsync(sessionId);
+        if (session?.UserId is null || string.IsNullOrEmpty(session.CookieIdHash))
+        {
+            return [];
+        }
+        var cookieIdHash = session.CookieIdHash;
+        var userId = session.UserId;
+        return await Sessions
+            .Find(s => s.CookieIdHash == cookieIdHash && s.UserId == userId && s.LogoutDateTimeOffset == null)
+            .Project(s => s.Id)
+            .ToListAsync();
     }
 
     /// <inheritdoc />

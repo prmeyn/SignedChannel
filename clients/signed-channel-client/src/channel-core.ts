@@ -45,6 +45,13 @@ export class ChannelCore {
   isSignedIn = false;
   /** Fired when {@link channelBound} or {@link isSignedIn} changes. */
   onStateChange?: () => void;
+  /**
+   * Fired EVERY time a connection of this tab is verified: the first time, and again after a
+   * reconnect or a return from the back/forward cache — each of which is a new connection the
+   * server knows nothing about yet. {@link channelBound} only ever flips once, so this is the hook
+   * for anything tied to the current connection (e.g. telling the server which page it shows).
+   */
+  onConnectionVerified?: () => void;
 
   /** Absolute UTC instant the session expires, learned from the server; null if unknown. */
   sessionExpiresAtUtc: string | null = null;
@@ -228,6 +235,7 @@ export class ChannelCore {
       case PUSH_CONNECTION_VERIFIED:
         this.channelBound = true;
         this.notify();
+        this.onConnectionVerified?.();
         break;
       case PUSH_INSTRUCTION: {
         const pointer = await this.decrypt(message.encryptedPayloadAsBase64);

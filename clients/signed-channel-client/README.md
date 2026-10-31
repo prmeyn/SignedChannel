@@ -46,6 +46,10 @@ channel.start('en');
   A sign-out anywhere — another tab, the server, an expired session, or a session that was
   signed out while this tab missed the push (`401 session_ended`) — ends in `onSignedOut`, with
   the tab's keys dropped so its next sign-in starts a new session.
+- **Connection lifecycle:** the connection closes on every `pagehide` — including a page frozen
+  into the back/forward cache, which Chrome otherwise keeps alive (with its socket) for 10 minutes
+  — and reconnects when the page is restored. `onConnectionVerified` fires for every verified
+  connection (first, after a reconnect, after a restore); `channelBound` only flips once.
 - **Expiry:** `sessionExpiresAtUtc`, `warningSeconds`, `onExpiryChange`, and `keepAlive()`.
 
 Names starting `Channel.` are the protocol's own; don't use them for instructions.
