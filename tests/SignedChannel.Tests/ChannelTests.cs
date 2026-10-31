@@ -171,19 +171,77 @@ public sealed class InstructionTests
 public sealed class SignInOutTests
 {
     [Fact]
-    public async Task Signing_in_clears_an_earlier_sign_out_and_tells_the_tabs()
+    public async Task Signing_in_a_fresh_session_marks_it_and_tells_the_tabs()
     {
         await using var host = await TestChannelHost.StartAsync();
         var tab = await host.OpenSessionAsync();
         await tab.ConnectAsync();
+
+        var signedIn = await host.Services.GetRequiredService<ChannelSessionService>().SignInAsync(tab.SessionId, "user-1");
+
+        Assert.True(signedIn);
+        Assert.Equal("user-1", host.Sessions.Sessions[tab.SessionId].UserId);
+        tab.TakePush($"group:{tab.SessionId}", ChannelNames.SignedInPush);
+    }
+
+    /// <summary>
+    /// A signed-out session is ended for good. Signing it in again — what a tab that missed the
+    /// sign-out push used to do — would revive keys that were signed out and merge two sign-ins.
+    /// </summary>
+    [Fact]
+    public async Task Signing_in_an_ended_session_is_refused_and_its_tabs_are_told_to_leave()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var tab = await host.OpenSessionAsync();
+        await tab.ConnectAsync();
+        await tab.SendAsync("Dev.SignIn", new { userId = "user-1" });
         await host.Sessions.SetLogoutAsync(tab.SessionId);
 
-        await host.Services.GetRequiredService<ChannelSessionService>().SignInAsync(tab.SessionId, "user-1");
+        var signedIn = await host.Services.GetRequiredService<ChannelSessionService>().SignInAsync(tab.SessionId, "user-2");
 
+        Assert.False(signedIn);
         var session = host.Sessions.Sessions[tab.SessionId];
         Assert.Equal("user-1", session.UserId);
-        Assert.Null(session.LogoutDateTimeOffset);
-        tab.TakePush($"group:{tab.SessionId}", ChannelNames.SignedInPush);
+        Assert.NotNull(session.LogoutDateTimeOffset);
+        tab.TakePush($"group:{tab.SessionId}", ChannelNames.SignedOutPush);
+    }
+
+    [Fact]
+    public async Task An_ended_session_runs_nothing_but_its_own_sign_out()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var tab = await host.OpenSessionAsync();
+        await tab.ConnectAsync();
+        await tab.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        await host.Services.GetRequiredService<ChannelSessionService>().SignOutAsync(tab.SessionId);
+
+        var (keepAliveStatus, keepAlive) = await tab.SendAsync(ChannelNames.KeepAlive);
+        var (signInStatus, signIn) = await tab.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        var (signOutStatus, _) = await tab.SendAsync(ChannelNames.SignOut);
+
+        Assert.Equal((401, ChannelNames.SessionEndedCode), (keepAliveStatus, keepAlive.GetProperty("code").GetString()));
+        Assert.Equal((401, ChannelNames.SessionEndedCode), (signInStatus, signIn.GetProperty("code").GetString()));
+        Assert.Equal(202, signOutStatus);
+        Assert.NotNull(host.Sessions.Sessions[tab.SessionId].LogoutDateTimeOffset);
+    }
+
+    [Fact]
+    public async Task After_a_sign_out_new_keys_sign_in_as_a_new_session()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var old = await host.OpenSessionAsync();
+        await old.ConnectAsync();
+        await old.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        await old.SendAsync(ChannelNames.SignOut);
+
+        var fresh = await host.OpenSessionAsync();
+        await fresh.ConnectAsync();
+        var (status, _) = await fresh.SendAsync("Dev.SignIn", new { userId = "user-1" });
+
+        Assert.Equal(202, status);
+        Assert.NotEqual(old.SessionId, fresh.SessionId);
+        Assert.Equal("user-1", host.Sessions.Sessions[fresh.SessionId].UserId);
+        Assert.Null(host.Sessions.Sessions[fresh.SessionId].LogoutDateTimeOffset);
     }
 
     [Fact]
@@ -221,9 +279,9 @@ public sealed class SignInOutTests
         var context = Assert.Single(observer.Contexts);
         Assert.Equal((tab.SessionId, "user-1"), (context.SessionId, context.UserId));
 
-        // Signed out is anonymous again: a fresh tab of the session does not resume signed in.
-        var registered = await tab.OpenAnotherTab().ConnectAsync();
-        Assert.False(registered.GetProperty("isSignedIn").GetBoolean());
+        // Signed out is ended: another tab still holding the session's keys cannot even register.
+        var (registerStatus, registered) = await tab.OpenAnotherTab().SendAsync(ChannelNames.Register);
+        Assert.Equal((401, ChannelNames.SessionEndedCode), (registerStatus, registered.GetProperty("code").GetString()));
     }
 }
 

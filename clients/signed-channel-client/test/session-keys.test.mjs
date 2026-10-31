@@ -188,6 +188,10 @@ async function connectChannel(sessionId, actions) {
     const payload = message.PayloadAsBase64 ? JSON.parse(fromBase64(message.PayloadAsBase64)) : {};
     requests.push({ actionName: message.ActionName, payload });
     const answer = actions[message.ActionName]?.(payload) ?? {};
+    // An action may answer with a status of its own: { status, body }.
+    if (answer && typeof answer.status === 'number') {
+      return new Response(JSON.stringify(answer.body ?? {}), { status: answer.status });
+    }
     return new Response(JSON.stringify(answer), { status: 202 });
   };
   async function encrypt(text) {
@@ -292,6 +296,24 @@ test('a SignedIn push marks the tab signed in; a SignedOut push signs it out onc
 
   assert.equal(channel.isSignedIn, false);
   assert.equal(signedOut, 1);
-  assert.equal(requests.filter((r) => r.actionName === 'Channel.SignOut').length, 1);
+  // The 401 itself already dropped the keys, so the sign-out confirmation cannot be signed and is
+  // not sent — the server ended the session already, so there is nothing left to confirm.
+  assert.equal(await store.getSigningPrivateKey(), undefined);
+});
+
+test('a session ended while this tab missed the push: the next 401 signs the tab out and drops its keys', async () => {
+  const actions = { 'Channel.Register': () => ({ isSignedIn: true }) };
+  const { channel, store } = await connectChannel('s-ended', actions);
+  let signedOut = 0;
+  channel.onSignedOut = () => signedOut++;
+
+  actions['Some.Action'] = () => ({ status: 401, body: { code: 'session_ended' } });
+  await channel.send('Some.Action');
+  await settle();
+
+  assert.equal(signedOut, 1);
+  assert.equal(channel.isSignedIn, false);
+  // The 401 itself already dropped the keys, so the sign-out confirmation cannot be signed and is
+  // not sent — the server ended the session already, so there is nothing left to confirm.
   assert.equal(await store.getSigningPrivateKey(), undefined);
 });

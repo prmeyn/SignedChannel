@@ -94,15 +94,13 @@ public class MongoChannelSessionStore<TRecord> : IChannelSessionStore
     /// <inheritdoc />
     public virtual Task SetUserIdAsync(string sessionId, string userId)
     {
-        // Signing in supersedes any earlier logout, so the tombstone is cleared here. Leaving it
-        // set is subtly fatal: a client that reuses its session id would authenticate successfully
-        // and still be treated as logged out on the very next request, looping back to sign-in
-        // forever. Also starts the idle clock.
+        // Also starts the idle clock. Only a session that was never signed out: a signed-out one is
+        // ended for good, and the filter (rather than only the caller's check) is what keeps a
+        // sign-out that lands between that check and this write from being undone.
         var update = Builders<TRecord>.Update
             .Set(session => session.UserId, userId)
-            .Set(session => session.LogoutDateTimeOffset, (DateTimeOffset?)null)
             .Set(session => session.LastActivityDateTimeOffset, DateTimeOffset.UtcNow);
-        return Sessions.UpdateOneAsync(session => session.Id == sessionId, update);
+        return Sessions.UpdateOneAsync(session => session.Id == sessionId && session.LogoutDateTimeOffset == null, update);
     }
 
     /// <inheritdoc />

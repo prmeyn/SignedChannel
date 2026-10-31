@@ -191,8 +191,17 @@ public static class SignedChannelEndpoints
 
             var session = await sessionStore.GetByIdAsync(message.SessionId);
 
-            // A logged-out session is anonymous again. Without this a remotely-logged-out browser
-            // could keep acting signed in, because the signature it holds is still perfectly valid.
+            // A signed-out session is ended for good: nothing more runs on it, signed in or not.
+            // The browser's answer is to drop its keys and start a new session. Letting it carry on
+            // anonymously instead (as before 10.3) meant a tab that missed the sign-out push could
+            // sign the SAME session in again — reviving keys that were signed out, merging two
+            // sign-ins into one session, and handing a reused session to whoever signed in next.
+            // Channel.SignOut stays allowed: it is the tab's own idempotent confirmation.
+            if (session?.LogoutDateTimeOffset is not null && message.ActionName != ChannelNames.SignOut)
+            {
+                return Results.Json(new { code = ChannelNames.SessionEndedCode }, statusCode: (int)HttpStatusCode.Unauthorized);
+            }
+
             var userId = session?.LogoutDateTimeOffset is null ? session?.UserId : null;
 
             // Binds the signed request to a cookie the page's own scripts cannot read, so a stolen
@@ -216,7 +225,7 @@ public static class SignedChannelEndpoints
                 if (sessionExpiry.IsExpired(session, now))
                 {
                     await sessionStore.SetLogoutAsync(message.SessionId);
-                    return Results.Json(new { code = "session_expired" }, statusCode: (int)HttpStatusCode.Unauthorized);
+                    return Results.Json(new { code = ChannelNames.SessionExpiredCode }, statusCode: (int)HttpStatusCode.Unauthorized);
                 }
 
                 var lastActivity = session.LastActivityDateTimeOffset ?? session.StartDateTimeOffset;

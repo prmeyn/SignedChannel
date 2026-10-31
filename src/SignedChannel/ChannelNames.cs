@@ -48,6 +48,18 @@ public static class ChannelNames
     /// <summary>The session was signed out — remotely, from another tab, or by expiry handling.</summary>
     public const string SignedOutPush = "Channel.SignedOut";
 
+    // --- 401 reason codes ({"code": …} in the body) ------------------------------------------
+
+    /// <summary>The signed-in session ran past its idle or absolute window; it is now ended.</summary>
+    public const string SessionExpiredCode = "session_expired";
+
+    /// <summary>
+    /// The session was signed out (here, in another tab, remotely, or by expiry) and is ended for
+    /// good. The browser's answer is to drop its keys and start a new session — never to sign the
+    /// old one in again.
+    /// </summary>
+    public const string SessionEndedCode = "session_ended";
+
     /// <summary>The id the connection challenge's single-use token is stored under.</summary>
     internal static string ConnectionChallengeTokenId(string sessionId, string connectionId) =>
         $"conn:{sessionId}:{connectionId}";

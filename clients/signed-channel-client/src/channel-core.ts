@@ -20,8 +20,11 @@ const PUSH_INSTRUCTION = 'Channel.Instruction';
 const PUSH_SIGNED_IN = 'Channel.SignedIn';
 const PUSH_SIGNED_OUT = 'Channel.SignedOut';
 
-// The dispatcher's reason code when a signed-in session has expired server-side.
+// The dispatcher's reason codes (server: ChannelNames.SessionExpiredCode / SessionEndedCode).
+// Expired: a signed-in session ran out its window. Ended: the session was signed out — this tab
+// missed the push — and is never usable again; the tab must start a new session.
 const UNAUTHORIZED_SESSION_EXPIRED = 'session_expired';
+const UNAUTHORIZED_SESSION_ENDED = 'session_ended';
 
 /** Receives an instruction's payload — usually JSON, as the server-side code that pushed it wrote it. */
 export type InstructionHandler = (payload: string | null) => void;
@@ -68,10 +71,11 @@ export class ChannelCore {
     private readonly settings: SessionStore,
     private readonly crypto: CryptoCore
   ) {
-    // A signed-in session that expired server-side comes back as a 401; drive the same sign-out
-    // a remote one gets.
+    // A session that expired, or was signed out while this tab missed the push, comes back as a
+    // 401; drive the same sign-out a remote one gets. That drops the keys, so the next page load
+    // starts a NEW session rather than signing the ended one in again.
     this.api.onUnauthorized = (code) => {
-      if (code === UNAUTHORIZED_SESSION_EXPIRED) {
+      if (code === UNAUTHORIZED_SESSION_EXPIRED || code === UNAUTHORIZED_SESSION_ENDED) {
         void this.signOut();
       }
     };

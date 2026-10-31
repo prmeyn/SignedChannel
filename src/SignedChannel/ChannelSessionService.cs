@@ -23,16 +23,36 @@ public class ChannelSessionService
     }
 
     /// <summary>
-    /// Marks the session as the user's, clearing any earlier sign-out, and pushes
-    /// <see cref="ChannelNames.SignedInPush"/> to its tabs.
+    /// Marks the session as the user's and pushes <see cref="ChannelNames.SignedInPush"/> to its
+    /// tabs — unless the session no longer exists or was signed out, in which case nothing is signed
+    /// in and its tabs are told <see cref="ChannelNames.SignedOutPush"/> instead.
     /// </summary>
-    public async Task SignInAsync(string sessionId, string userId)
+    /// <returns>Whether the session was signed in.</returns>
+    /// <remarks>
+    /// A signed-out session is ended for good (see <see cref="ChannelNames.SessionEndedCode"/>).
+    /// Signing it in again would revive keys that were signed out and merge two sign-ins into one
+    /// session; a browser that still holds it is told to drop it and start a new one.
+    /// </remarks>
+    public async Task<bool> SignInAsync(string sessionId, string userId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
 
+        var session = await _sessions.GetByIdAsync(sessionId);
+        if (session is null)
+        {
+            return false;
+        }
+        var expiry = DateTimeOffset.UtcNow.Add(LifecyclePushValidity);
+        if (session.LogoutDateTimeOffset is not null)
+        {
+            await _push.SendToSessionAsync(sessionId, ChannelNames.SignedOutPush, payload: null, expiry);
+            return false;
+        }
+
         await _sessions.SetUserIdAsync(sessionId, userId);
-        await _push.SendToSessionAsync(sessionId, ChannelNames.SignedInPush, payload: null, DateTimeOffset.UtcNow.Add(LifecyclePushValidity));
+        await _push.SendToSessionAsync(sessionId, ChannelNames.SignedInPush, payload: null, expiry);
+        return true;
     }
 
     /// <summary>
