@@ -3,7 +3,7 @@
 // exactly the in-memory fallback path. The IndexedDB path needs a real browser.
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { ChannelCore, CryptoCore, SessionApi, SessionStore, fromBase64, bytesToBase64, base64ToBytes } from '../dist/index.js';
+import { ChannelCore, CryptoCore, SessionApi, SessionStore, SignalRChannelConnection, fromBase64, bytesToBase64, base64ToBytes } from '../dist/index.js';
 
 class MemoryStorage {
   #items = new Map();
@@ -316,4 +316,72 @@ test('a session ended while this tab missed the push: the next 401 signs the tab
   // The 401 itself already dropped the keys, so the sign-out confirmation cannot be signed and is
   // not sent — the server ended the session already, so there is nothing left to confirm.
   assert.equal(await store.getSigningPrivateKey(), undefined);
+});
+
+/** A SignalR stand-in that records start/stop and hands out a new connection id per start. */
+function fakeSignalR() {
+  const calls = [];
+  let starts = 0;
+  const hub = {
+    connectionId: null,
+    on() {},
+    onreconnecting() {},
+    onreconnected() {},
+    onclose() {},
+    async start() { calls.push('start'); hub.connectionId = `conn-${++starts}`; },
+    async stop() { calls.push('stop'); hub.connectionId = null; },
+  };
+  class HubConnectionBuilder {
+    withUrl() { return { withAutomaticReconnect: () => ({ build: () => hub }) }; }
+  }
+  return { signalR: { HubConnectionBuilder }, calls };
+}
+
+function pageTransition(type, persisted) {
+  const event = new Event(type);
+  Object.defineProperty(event, 'persisted', { value: persisted });
+  return event;
+}
+
+test('every page hide stops the connection — a bfcache freeze too — and a bfcache restore reconnects', async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = new EventTarget();
+  try {
+    const { signalR, calls } = fakeSignalR();
+    const connection = new SignalRChannelConnection({ signalR });
+    const connectedIds = [];
+    connection.onConnected(() => connectedIds.push(connection.connectionId()));
+    connection.start();
+    await settle();
+
+    // Left for another page, with the browser keeping this one in its back/forward cache.
+    window.dispatchEvent(pageTransition('pagehide', true));
+    await settle();
+    assert.deepEqual(calls, ['start', 'stop']);
+
+    // Brought back with Back: a new connection, and onConnected again so the channel re-handshakes.
+    window.dispatchEvent(pageTransition('pageshow', true));
+    await settle();
+    assert.deepEqual(calls, ['start', 'stop', 'start']);
+    assert.deepEqual(connectedIds, ['conn-1', 'conn-2']);
+
+    // A normal first page show starts nothing extra.
+    window.dispatchEvent(pageTransition('pageshow', false));
+    await settle();
+    assert.deepEqual(calls, ['start', 'stop', 'start']);
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
+test('onConnectionVerified fires for every verified connection, while channelBound flips once', async () => {
+  const { channel, push } = await connectChannel('s-verified', { 'Channel.Register': () => ({ isSignedIn: false }) });
+  let verified = 0;
+  channel.onConnectionVerified = () => verified++;
+
+  await push('Channel.ConnectionVerified');
+  await push('Channel.ConnectionVerified');
+
+  assert.equal(channel.channelBound, true);
+  assert.equal(verified, 2);
 });

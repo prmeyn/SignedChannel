@@ -86,7 +86,14 @@ public static class SignedChannelEndpoints
                 return Results.StatusCode(StatusCodes.Status409Conflict);
             }
 
-            var cookieId = Guid.NewGuid().ToString();
+            // One secret per BROWSER, shared by all its sessions (one per tab): reuse the one the
+            // browser already holds. Minting a new one per registration (before 10.4) overwrote the
+            // browser's only cookie, so opening a tab broke every other signed-in tab's next request.
+            // The secret is there to stop a signing key stolen by script being used outside this
+            // browser, which a per-browser secret does just as well. Only a value of our own shape
+            // is reused; anything else is replaced.
+            var existing = httpRequest.Cookies[options.SessionCookieName];
+            var cookieId = Guid.TryParse(existing, out var existingId) ? existingId.ToString() : Guid.NewGuid().ToString();
             var record = new ChannelSessionRecord
             {
                 Id = sessionId,
@@ -114,7 +121,8 @@ public static class SignedChannelEndpoints
 
             // Secure=true is right for production. Over plain http://localhost the browser drops
             // the cookie, which is harmless here because it only gates sessions that have a user
-            // id — a state the handshake never reaches.
+            // id — a state the handshake never reaches. Appended even when reused: it slides the
+            // expiry for the whole browser.
             httpRequest.HttpContext.Response.Cookies.Append(options.SessionCookieName, cookieId, new CookieOptions
             {
                 HttpOnly = true,
@@ -212,7 +220,9 @@ public static class SignedChannelEndpoints
                 var cookieId = httpRequest.Cookies[options.SessionCookieName];
                 if (string.IsNullOrWhiteSpace(cookieId) || session!.CookieIdHash != CryptoUtils.ComputeSha512Hash(cookieId))
                 {
-                    httpRequest.HttpContext.Response.Cookies.Delete(options.SessionCookieName);
+                    // Refused, but the cookie is left alone: it is the browser's, and the other tabs'
+                    // sessions are bound to it. Deleting it here (before 10.4) let one stale tab sign
+                    // out every other tab of the browser.
                     return Results.Unauthorized();
                 }
             }

@@ -56,8 +56,35 @@ public class ChannelSessionService
     }
 
     /// <summary>
+    /// Signs the person out of the whole BROWSER the session is in: every still signed-in session
+    /// of theirs that shares its cookie secret (one per tab), each told
+    /// <see cref="ChannelNames.SignedOutPush"/>. What a user means by "sign out" — and what
+    /// <see cref="ChannelNames.SignOut"/> does. Another person signed in elsewhere in the same
+    /// browser is left alone.
+    /// </summary>
+    /// <param name="sessionId">Any session of the browser — usually the one asking.</param>
+    /// <param name="exceptConnectionId">A tab of <paramref name="sessionId"/> to leave out — the one that asked, which already knows.</param>
+    /// <returns>How many sessions were signed out.</returns>
+    public async Task<int> SignOutBrowserAsync(string sessionId, string? exceptConnectionId = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+
+        var sessionIds = await _sessions.GetSignedInSessionIdsOfBrowserAsync(sessionId);
+        foreach (var id in sessionIds)
+        {
+            await SignOutAsync(id, id == sessionId ? exceptConnectionId : null);
+        }
+        // The asking session itself, even if it was already anonymous or signed out (idempotent).
+        if (!sessionIds.Contains(sessionId))
+        {
+            await SignOutAsync(sessionId, exceptConnectionId);
+        }
+        return sessionIds.Count;
+    }
+
+    /// <summary>
     /// Marks the session signed out and pushes <see cref="ChannelNames.SignedOutPush"/> to its tabs.
-    /// Idempotent.
+    /// Idempotent. One session only — <see cref="SignOutBrowserAsync"/> is the user-facing sign-out.
     /// </summary>
     /// <param name="sessionId">The session to sign out.</param>
     /// <param name="exceptConnectionId">A tab to leave out — the one that asked, which already knows.</param>

@@ -51,4 +51,21 @@ public interface IChannelSessionStore
 
     /// <summary>Records activity, sliding the idle-expiry window.</summary>
     Task TouchActivityAsync(string sessionId, DateTimeOffset now);
+
+    /// <summary>
+    /// The still signed-in sessions of the same person in the same browser as
+    /// <paramref name="sessionId"/> (itself included, if signed in): same
+    /// <see cref="ChannelSessionRecord.CookieIdHash"/> — one secret per browser — and same
+    /// <see cref="ChannelSessionRecord.UserId"/>, with no sign-out. What
+    /// <see cref="ChannelSessionService.SignOutBrowserAsync"/> ends.
+    /// </summary>
+    /// <remarks>
+    /// The default answers with the session alone, so a store written before 10.4 keeps compiling
+    /// and signs out one session as it always did; override it to sign out the whole browser.
+    /// </remarks>
+    async Task<IReadOnlyList<string>> GetSignedInSessionIdsOfBrowserAsync(string sessionId)
+    {
+        var session = await GetByIdAsync(sessionId);
+        return session?.UserId is not null && session.LogoutDateTimeOffset is null ? [sessionId] : [];
+    }
 }

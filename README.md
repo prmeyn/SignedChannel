@@ -213,8 +213,18 @@ await mySessionIndex.AddAsync(yourOwnUserId, sessionId);   // if you push to use
 
 That pushes `Channel.SignedIn` to every tab of the session, where `channel.onSignedIn` fires and
 `channel.isSignedIn` becomes true. It returns `false`, and signs nothing in, when the session is
-gone or was signed out. Server-initiated sign-out is `SignOutAsync(sessionId)`; a tab signs itself
-out with `channel.signOut()`. Either way every tab of the session ends in `channel.onSignedOut`.
+gone or was signed out.
+
+**Signing out covers the browser.** Each tab is its own session, but a person signs out of a
+browser, not a tab: `channel.signOut()` (the built-in `Channel.SignOut`) and the server's
+`SignOutBrowserAsync(sessionId)` end **every** signed-in session of that person in that browser,
+and each of their tabs ends in `channel.onSignedOut`. Someone else signed in elsewhere in the same
+browser is left alone. `SignOutAsync(sessionId)` still ends a single session.
+
+A browser's sessions share one secret: the HttpOnly `session_secret` cookie every signed-in request
+is checked against, so a signing key stolen by script is useless outside that browser. Registration
+reuses the cookie the browser already has, a failed check refuses the request without deleting it,
+and sign-out leaves it in place for the browser's other sessions.
 
 **Sign-out is final.** A signed-out session is ended for good: every request on it except
 `Channel.SignOut` gets `401 {"code":"session_ended"}`, and the client answers by dropping its keys
@@ -250,6 +260,19 @@ The major version follows the .NET version it targets (10.x is .NET 10), so it i
 breaking-change signal: a minor release can change the API, and the release notes say so. Both
 halves always release together under one version; pin the pair exactly (`10.2.1`, not `^10.2.0`)
 and read the release notes before moving.
+
+**10.4.0** —
+- **One `session_secret` per browser**, shared by its sessions. Each registration used to replace the
+  browser's cookie, so opening a tab broke every other signed-in tab's next request — and the failed
+  check deleted the cookie, taking the new tab down too.
+- **Sign-out covers the browser:** `Channel.SignOut` and the new `ChannelSessionService.SignOutBrowserAsync`
+  end all signed-in sessions of that person in that browser. `IChannelSessionStore` gained
+  `GetSignedInSessionIdsOfBrowserAsync`, with a default that returns the session alone, so custom stores
+  compile and keep signing out one session until they override it.
+- **Back/forward cache:** the browser client closes its connection on every page hide, including a
+  page frozen into the cache (Chrome kept those connections, and so the server's tab counts, alive
+  for 10 minutes), and reconnects on restore. New `ChannelCore.onConnectionVerified`, fired for every
+  verified connection.
 
 **10.3.0** — a signed-out session is ended for good (see *Signing a session in and out*).
 `ChannelSessionService.SignInAsync` now returns `Task<bool>`. If you implement `IChannelSessionStore`

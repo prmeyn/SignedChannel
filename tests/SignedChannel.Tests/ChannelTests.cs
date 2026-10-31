@@ -285,6 +285,90 @@ public sealed class SignInOutTests
     }
 }
 
+/// <summary>
+/// One cookie secret per BROWSER, shared by its sessions (one per tab). Before 10.4 each new tab's
+/// registration replaced the browser's only cookie, so every other signed-in tab's next request
+/// failed — and the failure deleted the cookie, taking the new tab down too.
+/// </summary>
+public sealed class BrowserTests
+{
+    [Fact]
+    public async Task A_new_tab_does_not_sign_out_the_tabs_already_signed_in()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var first = await host.OpenSessionAsync();
+        await first.ConnectAsync();
+        await first.SendAsync("Dev.SignIn", new { userId = "user-1" });
+
+        var second = await first.OpenNewSessionInSameBrowserAsync();
+        await second.ConnectAsync();
+        await second.SendAsync("Dev.SignIn", new { userId = "user-1" });
+
+        Assert.NotEqual(first.SessionId, second.SessionId);
+        Assert.Equal(host.Sessions.Sessions[first.SessionId].CookieIdHash, host.Sessions.Sessions[second.SessionId].CookieIdHash);
+        Assert.Equal(202, (await first.SendAsync(ChannelNames.KeepAlive)).Status);
+        Assert.Equal(202, (await second.SendAsync(ChannelNames.KeepAlive)).Status);
+    }
+
+    [Fact]
+    public async Task Signing_out_in_one_tab_signs_the_person_out_of_the_whole_browser_only()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var first = await host.OpenSessionAsync();
+        await first.ConnectAsync();
+        await first.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        var second = await first.OpenNewSessionInSameBrowserAsync();
+        await second.ConnectAsync();
+        await second.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        var someoneElse = await first.OpenNewSessionInSameBrowserAsync();
+        await someoneElse.ConnectAsync();
+        await someoneElse.SendAsync("Dev.SignIn", new { userId = "user-2" });
+        var elsewhere = await host.OpenSessionAsync(); // the same person in another browser
+        await elsewhere.ConnectAsync();
+        await elsewhere.SendAsync("Dev.SignIn", new { userId = "user-1" });
+
+        var (status, _) = await first.SendAsync(ChannelNames.SignOut);
+
+        Assert.Equal(202, status);
+        Assert.NotNull(host.Sessions.Sessions[first.SessionId].LogoutDateTimeOffset);
+        Assert.NotNull(host.Sessions.Sessions[second.SessionId].LogoutDateTimeOffset);
+        second.TakePush($"group:{second.SessionId}", ChannelNames.SignedOutPush);
+        Assert.Null(host.Sessions.Sessions[someoneElse.SessionId].LogoutDateTimeOffset);
+        Assert.Null(host.Sessions.Sessions[elsewhere.SessionId].LogoutDateTimeOffset);
+        Assert.NotNull(first.Cookie); // the browser keeps its secret for its other sessions
+    }
+
+    [Fact]
+    public async Task A_wrong_cookie_is_refused_without_deleting_the_browsers_cookie()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var tab = await host.OpenSessionAsync();
+        await tab.ConnectAsync();
+        await tab.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        var genuine = tab.Cookie;
+        tab.Cookie = $"session_secret={Guid.NewGuid()}";
+
+        var (status, _) = await tab.SendAsync(ChannelNames.KeepAlive);
+
+        Assert.Equal(401, status);
+        Assert.StartsWith("session_secret=", tab.Cookie); // no deletion came back
+        tab.Cookie = genuine;
+        Assert.Equal(202, (await tab.SendAsync(ChannelNames.KeepAlive)).Status);
+    }
+
+    [Fact]
+    public async Task A_cookie_that_is_not_ours_is_replaced_at_registration()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var tab = new TestBrowser(host, TestBrowser.NewConnectionId()) { Cookie = "session_secret=not-a-guid" };
+
+        await tab.RegisterSessionAsync();
+
+        Assert.NotEqual("session_secret=not-a-guid", tab.Cookie);
+        Assert.True(Guid.TryParse(tab.Cookie!["session_secret=".Length..], out _));
+    }
+}
+
 public sealed class TokenStoreTests
 {
     [Fact]
