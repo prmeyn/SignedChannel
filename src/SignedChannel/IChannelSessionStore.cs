@@ -37,9 +37,11 @@ public interface IChannelSessionStore
     /// Marks the session as belonging to a user — this is the sign-in. Applications call it through
     /// <see cref="ChannelSessionService.SignInAsync"/>, which also tells the session's tabs.
     /// <para>
-    /// Implementations must also clear <see cref="ChannelSessionRecord.LogoutDateTimeOffset"/> and
-    /// start the idle clock. Leaving a tombstone set is subtly fatal: the sign-in succeeds and the
-    /// very next request is still treated as signed out, looping back to sign-in forever.
+    /// Implementations must also start the idle clock. They must NOT clear
+    /// <see cref="ChannelSessionRecord.LogoutDateTimeOffset"/>: a signed-out session is ended for good
+    /// (<see cref="ChannelNames.SessionEndedCode"/>), and <see cref="ChannelSessionService.SignInAsync"/>
+    /// never calls this for one. Before 10.3 this method cleared it, so that a browser reusing its
+    /// session id after a sign-out could sign in again; browsers now start a new session instead.
     /// </para>
     /// </summary>
     Task SetUserIdAsync(string sessionId, string userId);

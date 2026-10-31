@@ -43,7 +43,9 @@ channel.start('en');
   ```
   Any number of handlers can share a name; a name nobody listens to is simply dropped.
 - **Sign-in state:** `channel.isSignedIn`, `onSignedIn`, `onSignedOut`, and `channel.signOut()`.
-  A sign-out anywhere — another tab, the server, an expired session — ends in `onSignedOut`.
+  A sign-out anywhere — another tab, the server, an expired session, or a session that was
+  signed out while this tab missed the push (`401 session_ended`) — ends in `onSignedOut`, with
+  the tab's keys dropped so its next sign-in starts a new session.
 - **Expiry:** `sessionExpiresAtUtc`, `warningSeconds`, `onExpiryChange`, and `keepAlive()`.
 
 Names starting `Channel.` are the protocol's own; don't use them for instructions.

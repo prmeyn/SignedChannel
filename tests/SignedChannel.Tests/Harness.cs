@@ -116,10 +116,13 @@ public sealed class InMemorySessionStore : IChannelSessionStore
 
     public Task SetUserIdAsync(string sessionId, string userId)
     {
+        // As MongoChannelSessionStore: a signed-out session is ended for good.
         var record = Sessions[sessionId];
-        record.UserId = userId;
-        record.LogoutDateTimeOffset = null;
-        record.LastActivityDateTimeOffset = DateTimeOffset.UtcNow;
+        if (record.LogoutDateTimeOffset is null)
+        {
+            record.UserId = userId;
+            record.LastActivityDateTimeOffset = DateTimeOffset.UtcNow;
+        }
         return Task.CompletedTask;
     }
 

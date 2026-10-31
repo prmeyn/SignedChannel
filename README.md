@@ -211,10 +211,17 @@ await channelSessions.SignInAsync(sessionId, yourOwnUserId);
 await mySessionIndex.AddAsync(yourOwnUserId, sessionId);   // if you push to users later
 ```
 
-That clears any earlier sign-out and pushes `Channel.SignedIn` to every tab of the session, where
-`channel.onSignedIn` fires and `channel.isSignedIn` becomes true. Server-initiated sign-out is
-`SignOutAsync(sessionId)`; a tab signs itself out with `channel.signOut()`. Either way every tab
-of the session ends in `channel.onSignedOut`.
+That pushes `Channel.SignedIn` to every tab of the session, where `channel.onSignedIn` fires and
+`channel.isSignedIn` becomes true. It returns `false`, and signs nothing in, when the session is
+gone or was signed out. Server-initiated sign-out is `SignOutAsync(sessionId)`; a tab signs itself
+out with `channel.signOut()`. Either way every tab of the session ends in `channel.onSignedOut`.
+
+**Sign-out is final.** A signed-out session is ended for good: every request on it except
+`Channel.SignOut` gets `401 {"code":"session_ended"}`, and the client answers by dropping its keys
+and calling `onSignedOut`, so the browser's next sign-in happens on a **new** session. This covers
+the tab that missed the `Channel.SignedOut` push (asleep, or reconnecting): it can no longer sign
+the old session in again, which would revive keys that were signed out and run two sign-ins — or
+two people — through one session id.
 
 The user id is opaque: echoed to actions, used to decide whether a request counts as signed in,
 never interpreted. That is what lets a confidential OIDC client hand over the `sub` from its own
@@ -243,6 +250,11 @@ The major version follows the .NET version it targets (10.x is .NET 10), so it i
 breaking-change signal: a minor release can change the API, and the release notes say so. Both
 halves always release together under one version; pin the pair exactly (`10.2.1`, not `^10.2.0`)
 and read the release notes before moving.
+
+**10.3.0** — a signed-out session is ended for good (see *Signing a session in and out*).
+`ChannelSessionService.SignInAsync` now returns `Task<bool>`. If you implement `IChannelSessionStore`
+yourself, `SetUserIdAsync` must no longer clear `LogoutDateTimeOffset` — the opposite of what it
+had to do before.
 
 The code is extracted from a production implementation (uSignIn) rather than written fresh.
 
