@@ -261,6 +261,19 @@ breaking-change signal: a minor release can change the API, and the release note
 halves always release together under one version; pin the pair exactly (`10.2.1`, not `^10.2.0`)
 and read the release notes before moving.
 
+**10.5.0** — an expired session is stamped with **when it expired**, not when something noticed.
+Expiry is computed rather than written, so an abandoned session used to get the time of its next
+request, or of a browser-wide sign-out hours later — which made it look as if it had lasted until then.
+- `SignOutBrowserAsync` (and so `Channel.SignOut`) no longer signs out sessions that have already
+  expired: they are stamped with their expiry, without a `SignedOut` push, and not counted.
+- The dispatcher's `session_expired` path stamps the expiry.
+- `IChannelSessionStore` gained `SetLogoutAsync(sessionId, loggedOutAt)`, with a default that stamps
+  the current time, so custom stores compile and behave as before until they override it.
+- **The first stamp wins:** `SetLogoutAsync` no longer overwrites an existing sign-out time
+  (`MongoChannelSessionStore` used to, so signing out an ended session moved its end). If you implement
+  the store yourself, filter on `LogoutDateTimeOffset == null` too.
+- `ChannelSessionService`'s constructor also takes `SessionExpiryPolicy` (already registered).
+
 **10.4.0** —
 - **One `session_secret` per browser**, shared by its sessions. Each registration used to replace the
   browser's cookie, so opening a tab broke every other signed-in tab's next request — and the failed

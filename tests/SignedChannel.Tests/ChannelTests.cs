@@ -413,6 +413,74 @@ internal sealed class RecordingPresenceObserver : IPresenceObserver
     }
 }
 
+/// <summary>
+/// Expiry is computed, not written, so an expired session is only stamped when something finds it.
+/// It ended at its expiry, and that is the time it gets — not when it was found, hours later.
+/// </summary>
+public sealed class ExpiryTests
+{
+    /// <summary>Puts the session an hour past its last activity: well past the 30-minute idle window.</summary>
+    private static DateTimeOffset Abandon(TestChannelHost host, string sessionId)
+    {
+        var record = host.Sessions.Sessions[sessionId];
+        record.LastActivityDateTimeOffset = DateTimeOffset.UtcNow.AddHours(-1);
+        return host.Services.GetRequiredService<SessionExpiryPolicy>().ComputeExpiry(record);
+    }
+
+    [Fact]
+    public async Task A_browser_wide_sign_out_ends_an_expired_session_at_its_expiry_and_does_not_push_to_it()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var abandoned = await host.OpenSessionAsync();
+        await abandoned.ConnectAsync();
+        await abandoned.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        var current = await abandoned.OpenNewSessionInSameBrowserAsync();
+        await current.ConnectAsync();
+        await current.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        var expiredAt = Abandon(host, abandoned.SessionId);
+
+        var signedOut = await host.Services.GetRequiredService<ChannelSessionService>().SignOutBrowserAsync(current.SessionId);
+
+        Assert.Equal(1, signedOut);
+        Assert.Equal(expiredAt, host.Sessions.Sessions[abandoned.SessionId].LogoutDateTimeOffset);
+        Assert.DoesNotContain(host.Hub.Sent, p => p.Target == $"group:{abandoned.SessionId}" && p.Message.ActionName == ChannelNames.SignedOutPush);
+        Assert.NotNull(host.Sessions.Sessions[current.SessionId].LogoutDateTimeOffset);
+        current.TakePush($"group:{current.SessionId}", ChannelNames.SignedOutPush);
+    }
+
+    [Fact]
+    public async Task An_expired_sessions_request_stamps_its_expiry_not_the_time_it_was_noticed()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var tab = await host.OpenSessionAsync();
+        await tab.ConnectAsync();
+        await tab.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        var expiredAt = Abandon(host, tab.SessionId);
+
+        var (status, body) = await tab.SendAsync(ChannelNames.KeepAlive);
+
+        Assert.Equal((401, ChannelNames.SessionExpiredCode), (status, body.GetProperty("code").GetString()));
+        Assert.Equal(expiredAt, host.Sessions.Sessions[tab.SessionId].LogoutDateTimeOffset);
+    }
+
+    [Fact]
+    public async Task Signing_out_an_ended_session_again_keeps_its_first_stamp()
+    {
+        await using var host = await TestChannelHost.StartAsync();
+        var tab = await host.OpenSessionAsync();
+        await tab.ConnectAsync();
+        await tab.SendAsync("Dev.SignIn", new { userId = "user-1" });
+        var service = host.Services.GetRequiredService<ChannelSessionService>();
+        await service.SignOutBrowserAsync(tab.SessionId);
+        var firstStamp = host.Sessions.Sessions[tab.SessionId].LogoutDateTimeOffset;
+
+        await service.SignOutBrowserAsync(tab.SessionId);
+
+        Assert.NotNull(firstStamp);
+        Assert.Equal(firstStamp, host.Sessions.Sessions[tab.SessionId].LogoutDateTimeOffset);
+    }
+}
+
 internal sealed class RecordingConnectionChangeNotifier : IConnectionChangeNotifier
 {
     public List<(string UserId, string SessionId)> Calls { get; } = [];

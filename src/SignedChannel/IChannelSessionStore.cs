@@ -46,8 +46,23 @@ public interface IChannelSessionStore
     /// </summary>
     Task SetUserIdAsync(string sessionId, string userId);
 
-    /// <summary>Marks the session logged out. Idempotent.</summary>
+    /// <summary>
+    /// Marks the session logged out, now. Idempotent, and the first stamp wins: a session that already
+    /// has a <see cref="ChannelSessionRecord.LogoutDateTimeOffset"/> keeps it.
+    /// </summary>
     Task SetLogoutAsync(string sessionId);
+
+    /// <summary>
+    /// Marks the session logged out as of <paramref name="loggedOutAt"/> — for a session that ended
+    /// before anything noticed: an expired one ends at its expiry, not when its next request (or a
+    /// browser-wide sign-out hours later) found it. The first stamp wins, as for
+    /// <see cref="SetLogoutAsync(string)"/>.
+    /// </summary>
+    /// <remarks>
+    /// The default stamps the current time instead, so a store written before 10.5 keeps compiling
+    /// and behaves as it did; override it to record the real end.
+    /// </remarks>
+    Task SetLogoutAsync(string sessionId, DateTimeOffset loggedOutAt) => SetLogoutAsync(sessionId);
 
     /// <summary>Records activity, sliding the idle-expiry window.</summary>
     Task TouchActivityAsync(string sessionId, DateTimeOffset now);

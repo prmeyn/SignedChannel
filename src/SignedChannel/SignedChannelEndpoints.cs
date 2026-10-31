@@ -228,13 +228,14 @@ public static class SignedChannelEndpoints
             }
 
             // Server-authoritative expiry. An expired session is logged out here, reaching exactly
-            // the state a remote logout produces, so everything keyed off that state agrees.
+            // the state a remote logout produces, so everything keyed off that state agrees. It is
+            // stamped with when it expired, not now: this request may come hours later.
             if (!string.IsNullOrEmpty(userId) && session is not null)
             {
                 var now = DateTimeOffset.UtcNow;
                 if (sessionExpiry.IsExpired(session, now))
                 {
-                    await sessionStore.SetLogoutAsync(message.SessionId);
+                    await sessionStore.SetLogoutAsync(message.SessionId, sessionExpiry.ComputeExpiry(session));
                     return Results.Json(new { code = ChannelNames.SessionExpiredCode }, statusCode: (int)HttpStatusCode.Unauthorized);
                 }
 
