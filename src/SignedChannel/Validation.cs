@@ -25,6 +25,12 @@ public sealed class PublicKeysRegistrationRequestValidatorV1 : AbstractValidator
                 context.AddFailure("SignalRConnectionId is missing but required.");
                 return;
             }
+            // Handed to the host as is, so nothing a real browser would never report.
+            if (request.MaxTouchPoints is < 0 or > 256)
+            {
+                context.AddFailure("MaxTouchPoints is out of range.");
+                return;
+            }
 
             EncryptionPublicKeyWithTimestampRequest encryptionRequest;
             try

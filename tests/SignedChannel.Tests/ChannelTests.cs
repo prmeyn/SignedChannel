@@ -57,7 +57,7 @@ public sealed class HandshakeTests
     }
 
     [Fact]
-    public async Task The_registration_hook_gets_the_user_agent_client_hint()
+    public async Task The_registration_hook_gets_the_client_hint_and_touch_points()
     {
         var observer = new RecordingSessionObserver();
         await using var host = await TestChannelHost.StartAsync(s => s.AddSingleton<IChannelSessionObserver>(observer));
@@ -67,6 +67,7 @@ public sealed class HandshakeTests
         var context = Assert.Single(observer.Registered);
         Assert.Equal(tab.SessionId, context.SessionId);
         Assert.Equal(TestBrowser.BrandsHeader, context.UserAgentClientHint);
+        Assert.Equal(5, context.MaxTouchPoints); // what the harness's browser reports, like an iPad
     }
 
     [Fact]

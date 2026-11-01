@@ -14,6 +14,10 @@ namespace SignedChannel;
 /// </param>
 /// <param name="EncryptionPublicKeySignatureAsBase64">Signature over that blob.</param>
 /// <param name="HashAlgorithm">Hash the signature was produced with.</param>
+/// <param name="MaxTouchPoints">
+/// The browser's <c>navigator.maxTouchPoints</c> (since 10.7; absent from older clients). Informational
+/// and unsigned, like the language.
+/// </param>
 public sealed record SessionPublicKeysRegistrationRequest(
     string WebBrowserId,
     string SignalRConnectionId,
@@ -21,7 +25,8 @@ public sealed record SessionPublicKeysRegistrationRequest(
     string VerifyingPublicKeyBase64,
     string EncryptionPublicKeyRequestWithTimestampAsBase64,
     string EncryptionPublicKeySignatureAsBase64,
-    string HashAlgorithm);
+    string HashAlgorithm,
+    int? MaxTouchPoints = null);
 
 /// <summary>
 /// The signed inner blob of a registration: the encryption key, and when it was made. The

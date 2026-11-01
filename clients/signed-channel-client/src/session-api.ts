@@ -49,6 +49,9 @@ export class SessionApi {
       EncryptionPublicKeyRequestWithTimestampAsBase64,
       EncryptionPublicKeySignatureAsBase64: bytesToBase64(signature),
       HashAlgorithm: SessionApi.HASH_ALGORITHM,
+      // Informational, like the language: not signed. 0 on a Mac, 5 on an iPad, whose Safari sends a
+      // Mac user-agent word for word — so this is how the host can tell the two apart.
+      MaxTouchPoints: typeof navigator === 'undefined' ? null : navigator.maxTouchPoints ?? null,
     };
 
     const response = await fetch(SessionApi.REGISTER_URL, {
