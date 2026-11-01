@@ -19,6 +19,11 @@ public interface ISessionDeviceResolver
 /// <summary>
 /// What the application is told about a freshly registered session.
 /// </summary>
+/// <param name="HttpRequest">
+/// The registration request, for anything else the host wants from it — the <c>Sec-CH-UA</c>
+/// client hint, for one, which names browsers such as Brave whose user-agent is Chrome's word for word.
+/// Valid only while the observer runs.
+/// </param>
 /// <param name="SessionId">The new session's id.</param>
 /// <param name="WebBrowserId">The browser it belongs to.</param>
 /// <param name="SignalRConnectionId">The connection it registered with.</param>
@@ -26,6 +31,7 @@ public interface ISessionDeviceResolver
 /// <param name="UserAgent">The browser's user-agent header, if it sent one.</param>
 /// <param name="ApiVersion">Channel version stamped on the session.</param>
 public sealed record SessionRegisteredContext(
+    HttpRequest HttpRequest,
     string SessionId,
     string WebBrowserId,
     string SignalRConnectionId,

@@ -57,6 +57,19 @@ public sealed class HandshakeTests
     }
 
     [Fact]
+    public async Task The_registration_hook_gets_the_request_with_its_client_hints()
+    {
+        var observer = new RecordingSessionObserver();
+        await using var host = await TestChannelHost.StartAsync(s => s.AddSingleton<IChannelSessionObserver>(observer));
+
+        var tab = await host.OpenSessionAsync();
+
+        var context = Assert.Single(observer.Registered);
+        Assert.Equal(tab.SessionId, context.SessionId);
+        Assert.Equal(TestBrowser.BrandsHeader, Assert.Single(observer.Brands));
+    }
+
+    [Fact]
     public async Task A_signed_in_session_gaining_a_tab_notifies_the_host()
     {
         var notifier = new RecordingConnectionChangeNotifier();
@@ -491,6 +504,20 @@ internal sealed class RecordingConnectionChangeNotifier : IConnectionChangeNotif
         {
             Calls.Add((userId, sessionId));
         }
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class RecordingSessionObserver : IChannelSessionObserver
+{
+    public List<SessionRegisteredContext> Registered { get; } = [];
+    /// <summary>Read while the hook runs: the request is not valid after it.</summary>
+    public List<string> Brands { get; } = [];
+
+    public Task OnSessionRegisteredAsync(SessionRegisteredContext context)
+    {
+        Registered.Add(context);
+        Brands.Add(context.HttpRequest.Headers["Sec-CH-UA"].ToString());
         return Task.CompletedTask;
     }
 }

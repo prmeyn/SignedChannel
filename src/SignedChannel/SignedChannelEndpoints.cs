@@ -111,6 +111,7 @@ public static class SignedChannelEndpoints
             if (observer is not null)
             {
                 await observer.OnSessionRegisteredAsync(new SessionRegisteredContext(
+                    HttpRequest: httpRequest,
                     SessionId: sessionId,
                     WebBrowserId: request.WebBrowserId,
                     SignalRConnectionId: request.SignalRConnectionId,
