@@ -261,10 +261,9 @@ breaking-change signal: a minor release can change the API, and the release note
 halves always release together under one version; pin the pair exactly (`10.2.1`, not `^10.2.0`)
 and read the release notes before moving.
 
-**10.6.0** — `SessionRegisteredContext` carries the registration's `HttpRequest` (first parameter, as
-in `BrowserSignedOutContext`), so an `IChannelSessionObserver` can read more than the user-agent — the
-`Sec-CH-UA` client hint, for one, which names browsers such as Brave whose user-agent is Chrome's.
-Code that constructs the context positionally needs the new argument.
+**10.6.0** — `SessionRegisteredContext.UserAgentClientHint`: the browser's `Sec-CH-UA` client hint,
+alongside `UserAgent`. It names browsers whose user-agent is Chrome's word for word, such as Brave;
+Firefox and Safari do not send it. A new optional last parameter, so existing code compiles.
 
 **10.5.0** — an expired session is stamped with **when it expired**, not when something noticed.
 Expiry is computed rather than written, so an abandoned session used to get the time of its next
