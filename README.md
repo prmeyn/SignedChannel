@@ -261,6 +261,11 @@ breaking-change signal: a minor release can change the API, and the release note
 halves always release together under one version; pin the pair exactly (`10.2.1`, not `^10.2.0`)
 and read the release notes before moving.
 
+**10.7.0** — the browser client reports `navigator.maxTouchPoints` at registration, and
+`SessionRegisteredContext.MaxTouchPoints` hands it to the host: 0 on a Mac, 5 on an iPad, whose Safari
+sends a Mac user-agent word for word. Optional on the wire (older clients omit it) and in the context.
+Update the npm client and the NuGet packages together.
+
 **10.6.0** — `SessionRegisteredContext.UserAgentClientHint`: the browser's `Sec-CH-UA` client hint,
 alongside `UserAgent`. It names browsers whose user-agent is Chrome's word for word, such as Brave;
 Firefox and Safari do not send it. A new optional last parameter, so existing code compiles.

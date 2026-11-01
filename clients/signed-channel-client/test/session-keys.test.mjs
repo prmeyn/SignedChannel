@@ -36,6 +36,7 @@ function mockRegisterServer(sessionId) {
   globalThis.fetch = async (url, init) => {
     const body = JSON.parse(init.body);
     if (url === '/api/session/register') {
+      seen.maxTouchPoints = body.MaxTouchPoints;
       const verifyJwk = JSON.parse(fromBase64(body.VerifyingPublicKeyBase64));
       const verifyKey = await subtle.importKey('jwk', verifyJwk, { name: 'ECDSA', namedCurve: 'P-384' }, true, ['verify']);
       seen.verifyKey = verifyKey;
@@ -88,6 +89,23 @@ test('register + signed action round-trip; no key material in Web Storage', asyn
   assert.equal(sessionStorage.getItem('sessionSettings'), null);
   assert.doesNotMatch(sessionStorage.dump() + localStorage.dump(), /"d"\s*:/);
   assert.equal((await store.getSigningPrivateKey()).extractable, false);
+});
+
+test('registration reports the touch points, which tell an iPad from a Mac', async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { maxTouchPoints: 5 }, configurable: true });
+  try {
+    const seen = mockRegisterServer('session-touch');
+    await new SessionApi(new CryptoCore(), new SessionStore()).registerSession('browser-1', 'conn-1', 'en');
+    assert.equal(seen.maxTouchPoints, 5);
+    assert.equal(seen.registrationSignatureValid, true);
+  } finally {
+    if (original) {
+      Object.defineProperty(globalThis, 'navigator', original);
+    } else {
+      delete globalThis.navigator;
+    }
+  }
 });
 
 test('without IndexedDB the keys are memory-only: a fresh page has none', async () => {

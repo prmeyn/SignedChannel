@@ -30,6 +30,11 @@ public interface ISessionDeviceResolver
 /// <c>"Brave";v="141", "Not?A_Brand";v="8", "Chromium";v="141"</c>. Chromium browsers send it, Firefox
 /// and Safari do not. It names browsers whose user-agent is Chrome's word for word, such as Brave.
 /// </param>
+/// <param name="MaxTouchPoints">
+/// The touch points the browser reports (<c>navigator.maxTouchPoints</c>), if its client sent them:
+/// 0 on a Mac, 5 on an iPad. iPad Safari sends a Mac user-agent word for word, so a Macintosh
+/// user-agent with more than one touch point is an iPad.
+/// </param>
 public sealed record SessionRegisteredContext(
     string SessionId,
     string WebBrowserId,
@@ -37,7 +42,8 @@ public sealed record SessionRegisteredContext(
     string PreferredLanguageIsoCode,
     string? UserAgent,
     string ApiVersion,
-    string? UserAgentClientHint = null);
+    string? UserAgentClientHint = null,
+    int? MaxTouchPoints = null);
 
 /// <summary>
 /// Notified when a session is registered.

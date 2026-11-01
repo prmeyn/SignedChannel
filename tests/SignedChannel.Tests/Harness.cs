@@ -299,7 +299,8 @@ public sealed class TestBrowser
                 VerifyingPublicKeyBase64: verifyingKey,
                 EncryptionPublicKeyRequestWithTimestampAsBase64: signedBlob,
                 EncryptionPublicKeySignatureAsBase64: Sign(signedBlob),
-                HashAlgorithm: HashAlgorithm))
+                HashAlgorithm: HashAlgorithm,
+                MaxTouchPoints: 5))
         };
         if (_cookies.Value is not null)
         {

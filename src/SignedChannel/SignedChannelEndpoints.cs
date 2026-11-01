@@ -118,7 +118,8 @@ public static class SignedChannelEndpoints
                     PreferredLanguageIsoCode: request.SelectedLanguageIsoCode,
                     UserAgent: httpRequest.Headers.UserAgent.ToString(),
                     ApiVersion: options.ApiVersion,
-                    UserAgentClientHint: clientHint.Length == 0 ? null : clientHint));
+                    UserAgentClientHint: clientHint.Length == 0 ? null : clientHint,
+                    MaxTouchPoints: request.MaxTouchPoints));
             }
 
             // Secure=true is right for production. Over plain http://localhost the browser drops
