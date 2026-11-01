@@ -110,13 +110,15 @@ public static class SignedChannelEndpoints
             var observer = serviceProvider.GetService<IChannelSessionObserver>();
             if (observer is not null)
             {
+                var clientHint = httpRequest.Headers["Sec-CH-UA"].ToString();
                 await observer.OnSessionRegisteredAsync(new SessionRegisteredContext(
                     SessionId: sessionId,
                     WebBrowserId: request.WebBrowserId,
                     SignalRConnectionId: request.SignalRConnectionId,
                     PreferredLanguageIsoCode: request.SelectedLanguageIsoCode,
                     UserAgent: httpRequest.Headers.UserAgent.ToString(),
-                    ApiVersion: options.ApiVersion));
+                    ApiVersion: options.ApiVersion,
+                    UserAgentClientHint: clientHint.Length == 0 ? null : clientHint));
             }
 
             // Secure=true is right for production. Over plain http://localhost the browser drops

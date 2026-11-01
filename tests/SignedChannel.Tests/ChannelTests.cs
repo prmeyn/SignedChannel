@@ -57,6 +57,19 @@ public sealed class HandshakeTests
     }
 
     [Fact]
+    public async Task The_registration_hook_gets_the_user_agent_client_hint()
+    {
+        var observer = new RecordingSessionObserver();
+        await using var host = await TestChannelHost.StartAsync(s => s.AddSingleton<IChannelSessionObserver>(observer));
+
+        var tab = await host.OpenSessionAsync();
+
+        var context = Assert.Single(observer.Registered);
+        Assert.Equal(tab.SessionId, context.SessionId);
+        Assert.Equal(TestBrowser.BrandsHeader, context.UserAgentClientHint);
+    }
+
+    [Fact]
     public async Task A_signed_in_session_gaining_a_tab_notifies_the_host()
     {
         var notifier = new RecordingConnectionChangeNotifier();
@@ -491,6 +504,17 @@ internal sealed class RecordingConnectionChangeNotifier : IConnectionChangeNotif
         {
             Calls.Add((userId, sessionId));
         }
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class RecordingSessionObserver : IChannelSessionObserver
+{
+    public List<SessionRegisteredContext> Registered { get; } = [];
+
+    public Task OnSessionRegisteredAsync(SessionRegisteredContext context)
+    {
+        Registered.Add(context);
         return Task.CompletedTask;
     }
 }

@@ -25,13 +25,19 @@ public interface ISessionDeviceResolver
 /// <param name="PreferredLanguageIsoCode">The language it asked for.</param>
 /// <param name="UserAgent">The browser's user-agent header, if it sent one.</param>
 /// <param name="ApiVersion">Channel version stamped on the session.</param>
+/// <param name="UserAgentClientHint">
+/// The browser's <c>Sec-CH-UA</c> client hint, if it sent one — e.g.
+/// <c>"Brave";v="141", "Not?A_Brand";v="8", "Chromium";v="141"</c>. Chromium browsers send it, Firefox
+/// and Safari do not. It names browsers whose user-agent is Chrome's word for word, such as Brave.
+/// </param>
 public sealed record SessionRegisteredContext(
     string SessionId,
     string WebBrowserId,
     string SignalRConnectionId,
     string PreferredLanguageIsoCode,
     string? UserAgent,
-    string ApiVersion);
+    string ApiVersion,
+    string? UserAgentClientHint = null);
 
 /// <summary>
 /// Notified when a session is registered.

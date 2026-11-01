@@ -241,6 +241,9 @@ public sealed class TestBrowser
         host.Services.GetRequiredService<ConnectionRegistry>().Add(connectionId);
     }
 
+    /// <summary>The <c>Sec-CH-UA</c> client hint every registration sends.</summary>
+    public const string BrandsHeader = "\"Brave\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"";
+
     public string SessionId { get; private set; }
 
     public string ConnectionId { get; }
@@ -302,6 +305,8 @@ public sealed class TestBrowser
         {
             register.Headers.Add("Cookie", _cookies.Value);
         }
+        // What a Chromium browser sends on its own fetches (Brave's user-agent is Chrome's).
+        register.Headers.TryAddWithoutValidation("Sec-CH-UA", BrandsHeader);
         var response = await _host.Client.SendAsync(register);
         response.EnsureSuccessStatusCode();
         CaptureCookie(response);
