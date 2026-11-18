@@ -133,3 +133,85 @@ public interface IChannelActivityRecorder
     /// <summary>Called after the response has been produced.</summary>
     Task RecordAsync(ActionCompletedContext context);
 }
+
+/// <summary>
+/// One action invocation, as the job registry sees it.
+/// </summary>
+/// <param name="JobId">Identifier of this invocation — the <c>jobId</c> the action receives.</param>
+/// <param name="SessionId">Session that made the request.</param>
+/// <param name="UserId">Application user id, or null if the session was not signed in.</param>
+/// <param name="ActionName">Wire name of the action.</param>
+public sealed record ChannelJobContext(
+    string JobId,
+    string SessionId,
+    string? UserId,
+    string ActionName);
+
+/// <summary>
+/// Tracks actions as cancellable jobs.
+/// <para>
+/// Optional. Without it, an action receives the HTTP request's own cancellation token, which ends
+/// with the request — fine for an action that finishes before it responds. With it, the action
+/// receives the token <see cref="Register"/> returns instead, so work that carries on after the
+/// response (reported as <see cref="MessageWebBrowserResponseBase.PercentageComplete"/> below 100)
+/// can still be cancelled later, by the host's own cancel action.
+/// </para>
+/// <para>
+/// The dispatcher stamps the response's <see cref="MessageWebBrowserResponseBase.JobId"/>. When the
+/// response reports 100 (the default) or the action fails, it calls <see cref="Unregister"/>.
+/// Otherwise the job is still running, so it calls <see cref="OnStillRunningAsync"/>, detached; the
+/// action then owns the job and unregisters it when its background work ends.
+/// </para>
+/// </summary>
+public interface IChannelJobRegistry
+{
+    /// <summary>Called before the action runs. The token returned is the one the action receives.</summary>
+    CancellationToken Register(ChannelJobContext context);
+
+    /// <summary>Called when the job has finished: a complete response, no response, or an exception.</summary>
+    void Unregister(string jobId);
+
+    /// <summary>
+    /// Called, detached, when the action responded with less than 100 percent complete — the place
+    /// to tell the client a job is in progress. Swallow errors: nothing observes the returned task.
+    /// </summary>
+    Task OnStillRunningAsync(ChannelJobContext context, MessageWebBrowserResponseBase response);
+}
+
+/// <summary>Which channel endpoint is asking the rate limiter.</summary>
+public enum ChannelRateLimitScope
+{
+    /// <summary>The session handshake. The key is <c>browser:{webBrowserId}</c>.</summary>
+    Registration,
+
+    /// <summary>A signed action. The key is <c>session:{sessionId}</c>.</summary>
+    Action,
+}
+
+/// <summary>
+/// One request, as the rate limiter sees it.
+/// </summary>
+/// <param name="Scope">Which endpoint the request is for.</param>
+/// <param name="Key">The bucket the request counts against (see <see cref="ChannelRateLimitScope"/>).</param>
+/// <param name="ActionName">The action's wire name, for <see cref="ChannelRateLimitScope.Action"/>; otherwise null.</param>
+/// <param name="HttpRequest">The live request, for anything else the limiter keys on — remote IP, headers.</param>
+public sealed record ChannelRateLimitContext(
+    ChannelRateLimitScope Scope,
+    string Key,
+    string? ActionName,
+    HttpRequest HttpRequest);
+
+/// <summary>
+/// Limits how often a browser may register sessions and send actions.
+/// <para>
+/// Optional. Asked after the request has been validated (so the key is the client's own, not an
+/// arbitrary string) and before any work is done. A false answer is returned as
+/// <c>429 Too Many Requests</c>. The limits themselves, and where the counts live (one process or
+/// shared), are the host's choice.
+/// </para>
+/// </summary>
+public interface IChannelRateLimiter
+{
+    /// <summary>True to let the request through; false to refuse it with 429.</summary>
+    Task<bool> IsAllowedAsync(ChannelRateLimitContext context);
+}

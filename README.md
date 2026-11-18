@@ -253,6 +253,8 @@ Register any of these and the channel calls them; leave them out and it does not
 | `IPresenceObserver` | connections opening, binding to a session, and closing |
 | `IConnectionChangeNotifier` | a signed-in session gaining or losing a tab |
 | `IChannelSignOutObserver` | a browser signing out — your own cookies, a companion device |
+| `IChannelJobRegistry` | each action as a cancellable job — its token outlives the request, for work that reports `percentageComplete` below 100 |
+| `IChannelRateLimiter` | each registration (`browser:{webBrowserId}`) and action (`session:{sessionId}`) — refuse with 429 |
 
 ## Versioning
 
@@ -260,6 +262,13 @@ The major version follows the .NET version it targets (10.x is .NET 10), so it i
 breaking-change signal: a minor release can change the API, and the release notes say so. Both
 halves always release together under one version; pin the pair exactly (`10.2.1`, not `^10.2.0`)
 and read the release notes before moving.
+
+**10.8.0** — two optional dispatcher hooks, both inert unless registered. `IChannelJobRegistry`: the
+action receives the registry's cancellation token instead of the request's, the response's `jobId` is
+stamped, and a response below 100 percent complete is handed to `OnStillRunningAsync` and left
+registered for the action to release; anything else is unregistered. `IChannelRateLimiter`: asked
+after validation on registration and on every action; a refusal is `429 Too Many Requests`. No wire
+changes for hosts that register neither. Update the npm client and the NuGet packages together.
 
 **10.7.0** — the browser client reports `navigator.maxTouchPoints` at registration, and
 `SessionRegisteredContext.MaxTouchPoints` hands it to the host: 0 on a Mac, 5 on an iPad, whose Safari

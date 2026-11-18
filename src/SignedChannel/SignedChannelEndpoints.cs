@@ -73,6 +73,12 @@ public static class SignedChannelEndpoints
                 return Results.ValidationProblem(validationResult.ToDictionary(), statusCode: (int)HttpStatusCode.BadRequest);
             }
 
+            if (!await IsAllowedAsync(serviceProvider, new ChannelRateLimitContext(
+                    ChannelRateLimitScope.Registration, $"browser:{request.WebBrowserId}", ActionName: null, httpRequest)))
+            {
+                return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+            }
+
             var encryptionRequest = ChannelCrypto.Deserialize<EncryptionPublicKeyWithTimestampRequest>(
                 request.EncryptionPublicKeyRequestWithTimestampAsBase64);
 
@@ -174,6 +180,14 @@ public static class SignedChannelEndpoints
 
             var message = ChannelCrypto.Deserialize<WebBrowserMessagePayloadRequest>(signedPayloadRequest.MessagePayloadRequestAsBase64);
 
+            // After validation, so the session id is one whose key signed this request: a client
+            // cannot spend someone else's allowance.
+            if (!await IsAllowedAsync(serviceProvider, new ChannelRateLimitContext(
+                    ChannelRateLimitScope.Action, $"session:{message.SessionId}", message.ActionName, httpRequest)))
+            {
+                return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+            }
+
             var action = actionResolver.Resolve(message.ActionName);
             if (action is null)
             {
@@ -274,6 +288,9 @@ public static class SignedChannelEndpoints
                 }
             }
 
+            var jobs = serviceProvider.GetService<IChannelJobRegistry>();
+            ChannelJobContext? job = null;
+            var jobStillRunning = false;
             try
             {
                 var actionValidationResult = (WebBrowserActionsValidationResult)action.ValidateMethod.Invoke(
@@ -295,14 +312,35 @@ public static class SignedChannelEndpoints
 
                 var jobId = Guid.NewGuid().ToString();
                 var startedAt = DateTimeOffset.UtcNow;
+
+                // With a job registry the action gets a token that outlives this request, so work it
+                // carries on after responding can still be cancelled. Without one, the request's own.
+                var actionToken = cancellationToken;
+                if (jobs is not null)
+                {
+                    job = new ChannelJobContext(jobId, message.SessionId, userId, message.ActionName);
+                    actionToken = jobs.Register(job);
+                }
+
                 var task = (Task)action.ProcessMethod.Invoke(actionInstance,
-                    [httpRequest, message.SessionId, message.SignalRConnectionId, userId, latestDeviceId, payload, jobId, cancellationToken])!;
+                    [httpRequest, message.SessionId, message.SignalRConnectionId, userId, latestDeviceId, payload, jobId, actionToken])!;
                 await task.ConfigureAwait(false);
 
                 var response = (MessageWebBrowserResponseBase?)task.GetType().GetProperty("Result")!.GetValue(task);
                 if (response is null)
                 {
                     return Results.BadRequest();
+                }
+
+                if (job is not null)
+                {
+                    response.JobId = jobId;
+                    if (response.PercentageComplete < 100)
+                    {
+                        // Still running: the action owns the job now and unregisters it when done.
+                        jobStillRunning = true;
+                        _ = jobs!.OnStillRunningAsync(job, response);
+                    }
                 }
 
                 // Mirrors the server-owned expiry onto every signed-in response, so the client's
@@ -338,6 +376,18 @@ public static class SignedChannelEndpoints
                 logger.LogError(ex, "Error in browser action {ActionName}", message.ActionName);
                 return Results.Problem("Check server logs for details");
             }
+            finally
+            {
+                // Finished one way or another (complete, no response, or thrown): release the job.
+                if (job is not null && !jobStillRunning)
+                {
+                    jobs!.Unregister(job.JobId);
+                }
+            }
         });
     }
+
+    /// <summary>Asks the host's <see cref="IChannelRateLimiter"/>, if there is one; with none, everything is allowed.</summary>
+    private static Task<bool> IsAllowedAsync(IServiceProvider serviceProvider, ChannelRateLimitContext context) =>
+        serviceProvider.GetService<IChannelRateLimiter>()?.IsAllowedAsync(context) ?? Task.FromResult(true);
 }
