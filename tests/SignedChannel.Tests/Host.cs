@@ -36,6 +36,46 @@ namespace SignedChannel.Tests.Host.Orders.Actions.WebApp.Ship
     }
 }
 
+namespace SignedChannel.Tests.Host.Jobs.Actions.WebApp.Start
+{
+    public sealed record StartRequest : MessageWebBrowserRequestBase
+    {
+        [JsonPropertyName("percentageComplete")]
+        public byte PercentageComplete { get; init; } = 100;
+
+        [JsonPropertyName("fail")]
+        public bool Fail { get; init; }
+    }
+
+    /// <summary>
+    /// Reports whatever progress it is told to (below 100 = still running after the response), or
+    /// throws, and hands the token it was given to the test.
+    /// </summary>
+    public sealed class StartAction : ISecureWebBrowserAction<StartRequest, MessageWebBrowserResponseBase>
+    {
+        /// <summary>The token the last invocation received.</summary>
+        public static CancellationToken LastToken { get; private set; }
+
+        public WebBrowserActionsValidationResult ValidateFromWebBrowser(string sessionId, string? userId, string? latestDeviceId, StartRequest? request) =>
+            new() { IsValid = true };
+
+        public Task<bool> HasAccess(HttpRequest unusedHttpRequest, string sessionId, string? userId, string? latestDeviceId, StartRequest? unusedRequest) =>
+            Task.FromResult(true);
+
+        public Task<MessageWebBrowserResponseBase> ProcessMessageFromWebBrowserAsync(
+            HttpRequest unusedHttpRequest, string sessionId, string signalRConnectionId, string? userId, string? latestDeviceId,
+            StartRequest? request, string jobId, CancellationToken cancellationToken)
+        {
+            LastToken = cancellationToken;
+            if (request?.Fail == true)
+            {
+                throw new InvalidOperationException("Job failed on purpose.");
+            }
+            return Task.FromResult(new MessageWebBrowserResponseBase { PercentageComplete = request?.PercentageComplete ?? 100 });
+        }
+    }
+}
+
 namespace SignedChannel.Tests.Host.Dev.Actions.WebApp.SignIn
 {
     public sealed record SignInRequest : MessageWebBrowserRequestBase
